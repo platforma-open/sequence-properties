@@ -5,6 +5,7 @@ Mirrors the contract that the Tengo workflow uses to call the script.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -116,3 +117,73 @@ def test_cli_antibody_full_coverage(tmp_path: Path):
     out = pl.read_csv(out_tsv, separator="\t")
     for col in ("charge_A_CDR3", "charge_A_VDJRegion", "charge_B_VDJRegion", "charge_Fv", "pi_Fv"):
         assert col in out.columns
+
+
+# ---------------------------------------------------------------------------
+# Byte-stability — properties.tsv / aa_fraction.tsv must hash identical across
+# runs for dedup to land on the workflow's canonical-input path.
+# ---------------------------------------------------------------------------
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _run_peptide(tmp_path: Path, suffix: str, rows: list[dict[str, str]]) -> tuple[Path, Path]:
+    """Run the CLI in peptide mode, returning (properties_path, aa_path)."""
+    in_tsv = tmp_path / f"input{suffix}.tsv"
+    plan_json = tmp_path / f"plan{suffix}.json"
+    out_tsv = tmp_path / f"out{suffix}.tsv"
+    aa_tsv = tmp_path / f"aa{suffix}.tsv"
+    _write_tsv(in_tsv, rows, ["entity_key", "peptide_seq"])
+    plan_json.write_text(json.dumps({"mode": "peptide"}))
+    rc = main(
+        [
+            "--input", str(in_tsv),
+            "--plan", str(plan_json),
+            "--output", str(out_tsv),
+            "--aa-fraction", str(aa_tsv),
+        ]
+    )
+    assert rc == 0
+    return out_tsv, aa_tsv
+
+
+# Same input, two runs → same bytes. Guards against ULP drift in transcendentals
+# (caught by the quantization step in pipeline._quantize_for_cid) and against
+# row-order drift on the way out (caught by the sort_keys path in
+# io_layer.write_output_tsv).
+def test_byte_stable_across_two_runs(tmp_path: Path):
+    rows = [
+        {"entity_key": "p1", "peptide_seq": "ACDEFGHIKL"},
+        {"entity_key": "p2", "peptide_seq": "MNPQRSTVWY"},
+        {"entity_key": "p3", "peptide_seq": "GFTFSSYAMS"},
+    ]
+    out_a, aa_a = _run_peptide(tmp_path, "_a", rows)
+    out_b, aa_b = _run_peptide(tmp_path, "_b", rows)
+    assert _sha256(out_a) == _sha256(out_b)
+    assert _sha256(aa_a) == _sha256(aa_b)
+
+
+# Same content, different input row order → same output bytes. Proves the
+# write-side sort actually normalises ordering rather than passing through.
+def test_byte_stable_under_row_permutation(tmp_path: Path):
+    rows = [
+        {"entity_key": "p1", "peptide_seq": "ACDEFGHIKL"},
+        {"entity_key": "p2", "peptide_seq": "MNPQRSTVWY"},
+        {"entity_key": "p3", "peptide_seq": "GFTFSSYAMS"},
+    ]
+    out_sorted, aa_sorted = _run_peptide(tmp_path, "_sorted", rows)
+    out_shuffled, aa_shuffled = _run_peptide(tmp_path, "_shuffled", list(reversed(rows)))
+    assert _sha256(out_sorted) == _sha256(out_shuffled)
+    assert _sha256(aa_sorted) == _sha256(aa_shuffled)
+
+
+# Negative test: different content → different bytes. Proves we're actually
+# distinguishing inputs and not just always cache-hitting on a constant.
+def test_byte_changes_when_input_changes(tmp_path: Path):
+    rows_a = [{"entity_key": "p1", "peptide_seq": "ACDEFGHIKL"}]
+    rows_b = [{"entity_key": "p1", "peptide_seq": "ACDEFGHIKM"}]  # last residue differs
+    out_a, _ = _run_peptide(tmp_path, "_a", rows_a)
+    out_b, _ = _run_peptide(tmp_path, "_b", rows_b)
+    assert _sha256(out_a) != _sha256(out_b)

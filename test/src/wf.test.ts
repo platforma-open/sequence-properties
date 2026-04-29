@@ -234,6 +234,30 @@ describe("model + UI", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Dedup wiring (see docs/dedup-plan.md)
+// ---------------------------------------------------------------------------
+
+describe("dedup", () => {
+  // Two projects pointing at the same upstream peptide-extraction (or same
+  // MiXCR clonotyping) — the second project's sequence-properties block must
+  // land on Done immediately without spawning a fresh Python step. Verified
+  // by inspecting that the resource handle returned for `exports.properties`
+  // points at the same resource-pool entry across both projects.
+  //
+  // Python-side byte-stability of properties.tsv / aa_fraction.tsv is already
+  // covered by `software/tests/integration/test_cli.py` (sha256 across two
+  // runs). This test guards the Tengo-side wiring: sorted map iteration in
+  // main.tpl.tengo + process.tpl.tengo and canonical JSON resource encoding
+  // for plan.json / params / infoBlob.
+  it.todo("second project on identical upstream lands on Done via dedup");
+
+  // Negative: change a single byte in the upstream input — the second
+  // project's block must run a fresh Python step. Proves the CID is
+  // genuinely distinguishing inputs and not always cache-hitting.
+  it.todo("changed upstream input breaks dedup and triggers fresh run");
+});
+
+// ---------------------------------------------------------------------------
 // Cross-block composition
 // ---------------------------------------------------------------------------
 
