@@ -1,22 +1,55 @@
 import type { InferOutputsType } from "@platforma-sdk/model";
-import { BlockModelV3, DataModelBuilder } from "@platforma-sdk/model";
+import { BlockModelV3, createPlDataTableV2 } from "@platforma-sdk/model";
+import { blockDataModel } from "./dataModel";
+import type { BlockArgs, WorkflowInfo } from "./types";
 
-export type BlockData = {
-  name: string;
-};
+export type { BlockArgs, BlockData, WorkflowInfo, WorkflowMode, WorkflowReceptor } from "./types";
+export { blockDataModel } from "./dataModel";
 
-const dataModel = new DataModelBuilder().from<BlockData>("v1").init(() => ({ name: "" }));
+const inputAnchorSpecs = [
+  // Peptide mode — universal naming
+  {
+    axes: [{ name: "pl7.app/sampleId" }, { name: "pl7.app/variantKey" }],
+    annotations: { "pl7.app/isAnchor": "true" },
+  },
+  // Antibody/TCR — legacy MiXCR bulk (cloneId per spec; clonotypeKey per current MiXCR output)
+  {
+    axes: [{ name: "pl7.app/sampleId" }, { name: "pl7.app/vdj/cloneId" }],
+    annotations: { "pl7.app/isAnchor": "true" },
+  },
+  {
+    axes: [{ name: "pl7.app/sampleId" }, { name: "pl7.app/vdj/clonotypeKey" }],
+    annotations: { "pl7.app/isAnchor": "true" },
+  },
+  // Antibody/TCR — legacy MiXCR single-cell
+  {
+    axes: [{ name: "pl7.app/sampleId" }, { name: "pl7.app/vdj/scClonotypeKey" }],
+    annotations: { "pl7.app/isAnchor": "true" },
+  },
+];
 
-export const platforma = BlockModelV3.create(dataModel)
-
-  .args((data) => ({ name: data.name }))
-
-  .output("tengoMessage", (ctx) => ctx.outputs?.resolve("tengoMessage")?.getDataAsJson())
-
-  .output("pythonMessage", (ctx) => ctx.outputs?.resolve("pythonMessage")?.getDataAsString())
-
-  .sections((_ctx) => [{ type: "link", href: "/", label: "Main" }])
-
+export const platforma = BlockModelV3.create(blockDataModel)
+  .args<BlockArgs>((data) => {
+    if (data.inputAnchor === undefined) {
+      throw new Error("Select an input dataset");
+    }
+    return { inputAnchor: data.inputAnchor };
+  })
+  .output("inputOptions", (ctx) =>
+    ctx.resultPool.getOptions(inputAnchorSpecs, { refsWithEnrichments: true }),
+  )
+  .output("inputSpec", (ctx) =>
+    ctx.data.inputAnchor ? ctx.resultPool.getPColumnSpecByRef(ctx.data.inputAnchor) : undefined,
+  )
+  .output("info", (ctx) => ctx.outputs?.resolve("info")?.getDataAsJson<WorkflowInfo>())
+  .output("isRunning", (ctx) => ctx.outputs?.getIsReadyOrError() === false)
+  .outputWithStatus("propertiesTable", (ctx) => {
+    const cols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
+    if (cols === undefined) return undefined;
+    return createPlDataTableV2(ctx, cols, ctx.data.tableState);
+  })
+  .title(() => "Sequence Properties")
+  .sections(() => [{ type: "link" as const, href: "/" as const, label: "Main" }])
   .done();
 
 export type BlockOutputs = InferOutputsType<typeof platforma>;

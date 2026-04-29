@@ -1,20 +1,40 @@
 <script setup lang="ts">
-import { PlAlert, PlBlockPage, PlTextField } from "@platforma-sdk/ui-vue";
+import {
+  PlAgDataTableV2,
+  PlAlert,
+  PlBlockPage,
+  PlDropdownRef,
+  usePlDataTableSettingsV2,
+} from "@platforma-sdk/ui-vue";
 import { useApp } from "../app";
 
 const app = useApp();
+
+const tableSettings = usePlDataTableSettingsV2({
+  model: () => app.model.outputs.propertiesTable,
+});
 </script>
 
 <template>
   <PlBlockPage>
-    <PlTextField v-model="app.model.data.name" label="Enter your name" :clearable="() => ''" />
+    <template #title>Sequence Properties</template>
 
-    <PlAlert v-if="app.model.outputs.tengoMessage" type="success">
-      {{ app.model.outputs.tengoMessage }}
-    </PlAlert>
+    <PlDropdownRef
+      v-model="app.model.data.inputAnchor"
+      :options="app.model.outputs.inputOptions"
+      label="Input dataset"
+    />
 
-    <PlAlert v-if="app.model.outputs.pythonMessage" type="success">
-      {{ app.model.outputs.pythonMessage }}
-    </PlAlert>
+    <template v-if="app.model.outputs.info">
+      <PlAlert
+        v-for="(message, idx) in app.model.outputs.info?.messages ?? []"
+        :key="idx"
+        type="info"
+      >
+        {{ message }}
+      </PlAlert>
+    </template>
+
+    <PlAgDataTableV2 v-model="app.model.data.tableState" :settings="tableSettings" />
   </PlBlockPage>
 </template>

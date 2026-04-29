@@ -1,0 +1,179 @@
+{
+  "peptide": {
+    "cases": {
+      "pep_all20": {
+        "notes": "20 standard AAs once each — every property defined. Reference for full-coverage numerics.",
+        "expected": {
+          "charge_peptide": "not_na",
+          "gravy_peptide": "not_na",
+          "mw_peptide": {"min": 2350.0, "max": 2400.0},
+          "pi_peptide": {"min": 4.0, "max": 9.5},
+          "eox_peptide": "not_na",
+          "ered_peptide": "not_na",
+          "instability_peptide": "not_na",
+          "aliphatic_peptide": "not_na",
+          "aromaticity_peptide": 0.15
+        }
+      },
+      "pep_polya_10": {
+        "notes": "Closed-form: every dipeptide is AA → II = (10/10)*9*1.0 = 9.0; aliphatic = 100.0; gravy = 1.8.",
+        "expected": {
+          "instability_peptide": 9.0,
+          "gravy_peptide": 1.8,
+          "aliphatic_peptide": 100.0,
+          "aromaticity_peptide": 0.0,
+          "eox_peptide": 0.0,
+          "ered_peptide": 0.0,
+          "mw_peptide": {"min": 728.5, "max": 729.1},
+          "pi_peptide": {"min": 5.9, "max": 6.1}
+        }
+      },
+      "pep_short": {
+        "notes": "4 aa < 10 — instability NA per R9; everything else defined.",
+        "expected": {
+          "instability_peptide": "na",
+          "charge_peptide": "not_na",
+          "gravy_peptide": "not_na",
+          "mw_peptide": "not_na",
+          "pi_peptide": "not_na"
+        }
+      },
+      "pep_polybasic_150": {
+        "notes": "150 R's — with peptide pKa_R=11.84 the polybasic side chains exceed C-terminus contribution at pH 14 (need ≥ ~145 R's), so charge stays positive and pI is NA per spec NA guard.",
+        "expected": {
+          "pi_peptide": "na",
+          "charge_peptide": "not_na",
+          "instability_peptide": "not_na"
+        }
+      },
+      "pep_polyacidic_30": {
+        "notes": "30 D's — N-term contribution at pH 0 still gives a zero crossing; pI defined and low.",
+        "expected": {
+          "pi_peptide": {"min": 1.0, "max": 4.5},
+          "charge_peptide": "not_na"
+        }
+      },
+      "pep_aromatic": {
+        "notes": "FFWWYY: aromaticity = 1.0; ε_red = 2*5500 + 2*1490 = 13980 (no Cys → ε_ox = ε_red).",
+        "expected": {
+          "aromaticity_peptide": 1.0,
+          "ered_peptide": 13980.0,
+          "eox_peptide": 13980.0,
+          "instability_peptide": "na"
+        }
+      },
+      "pep_no_aromatic": {
+        "notes": "No Y or W — ε emits 0 (NOT NA) per spec; aromaticity = 0.",
+        "expected": {
+          "ered_peptide": 0.0,
+          "eox_peptide": 0.0,
+          "aromaticity_peptide": 0.0,
+          "instability_peptide": "na"
+        }
+      },
+      "pep_with_stop": {
+        "notes": "Stop codon * → all properties NA per spec edge-case table.",
+        "expected_all_na": true
+      },
+      "pep_with_x": {
+        "notes": "X/B/Z dropped — cleaned to 'ACE' (3 aa); instability NA, others defined.",
+        "expected": {
+          "instability_peptide": "na",
+          "gravy_peptide": "not_na",
+          "mw_peptide": "not_na"
+        }
+      },
+      "pep_empty": {
+        "notes": "Empty cell → all NA.",
+        "expected_all_na": true
+      }
+    }
+  },
+  "antibody": {
+    "plan_file": "antibody_plan.json",
+    "cases": {
+      "ab_full_paired": {
+        "notes": "Full 7 regions both chains, IG → CDR3 + full-chain + Fv all defined.",
+        "expected": {
+          "charge_A_CDR3": "not_na",
+          "gravy_A_CDR3": "not_na",
+          "charge_B_CDR3": "not_na",
+          "charge_A_VDJRegion": "not_na",
+          "pi_A_VDJRegion": "not_na",
+          "charge_B_VDJRegion": "not_na",
+          "pi_B_VDJRegion": "not_na",
+          "charge_Fv": "not_na",
+          "pi_Fv": "not_na",
+          "mw_Fv": "not_na"
+        }
+      },
+      "ab_h_only": {
+        "notes": "Chain A full, chain B all empty → A defined, B + Fv all NA.",
+        "expected": {
+          "charge_A_CDR3": "not_na",
+          "charge_A_VDJRegion": "not_na",
+          "charge_B_CDR3": "na",
+          "charge_B_VDJRegion": "na",
+          "pi_B_VDJRegion": "na",
+          "charge_Fv": "na",
+          "pi_Fv": "na"
+        }
+      },
+      "ab_h_full_l_cdr3": {
+        "notes": "Chain A full, chain B only CDR3 → CDR3s defined for both; B full NA; Fv NA.",
+        "expected": {
+          "charge_A_CDR3": "not_na",
+          "charge_B_CDR3": "not_na",
+          "charge_A_VDJRegion": "not_na",
+          "charge_B_VDJRegion": "na",
+          "charge_Fv": "na"
+        }
+      },
+      "ab_cdr3_only": {
+        "notes": "Only CDR3 columns populated — CDR3 properties defined; full-chain + Fv NA.",
+        "expected": {
+          "charge_A_CDR3": "not_na",
+          "charge_B_CDR3": "not_na",
+          "charge_A_VDJRegion": "na",
+          "charge_B_VDJRegion": "na",
+          "charge_Fv": "na"
+        }
+      },
+      "ab_partial_a": {
+        "notes": "Chain A missing FR1 + FR4 — CDR3 still computed; A full-chain NA; B full + Fv? Fv requires both → NA.",
+        "expected": {
+          "charge_A_CDR3": "not_na",
+          "charge_A_VDJRegion": "na",
+          "charge_B_VDJRegion": "not_na",
+          "charge_Fv": "na"
+        }
+      },
+      "ab_stop_in_cdr3": {
+        "notes": "Stop codon in A_CDR3 → A CDR3 + reconstructed A full-chain both NA (* invalidates whole sequence). B unaffected; Fv NA.",
+        "expected": {
+          "charge_A_CDR3": "na",
+          "charge_A_VDJRegion": "na",
+          "charge_B_CDR3": "not_na",
+          "charge_B_VDJRegion": "not_na",
+          "charge_Fv": "na"
+        }
+      }
+    }
+  },
+  "tcr": {
+    "plan_file": "tcr_plan.json",
+    "notes": "Same input rows as antibody, but plan switched to TCRAB. Fv columns must be ABSENT from the schema (R12: Fv only for IG).",
+    "cases": {
+      "ab_full_paired": {
+        "notes": "TCR with both chains full — per-chain columns defined; Fv columns absent from schema.",
+        "expected_columns_absent": ["charge_Fv", "pi_Fv", "eox_Fv", "ered_Fv", "mw_Fv"],
+        "expected": {
+          "charge_A_CDR3": "not_na",
+          "charge_A_VDJRegion": "not_na",
+          "charge_B_CDR3": "not_na",
+          "charge_B_VDJRegion": "not_na"
+        }
+      }
+    }
+  }
+}
