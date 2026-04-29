@@ -6,6 +6,7 @@ self := import("@platforma-sdk/workflow-tengo:tpl")
 xsv := import("@platforma-sdk/workflow-tengo:pframes.xsv")
 pframes := import("@platforma-sdk/workflow-tengo:pframes")
 pSpec := import("@platforma-sdk/workflow-tengo:pframes.spec")
+maps := import("@platforma-sdk/workflow-tengo:maps")
 
 self.defineOutputs("propertiesPf", "exportPframe")
 
@@ -377,19 +378,23 @@ self.body(func(args) {
 	}
 
 	// Combined output pFrame — scalar properties + (peptide mode only) AA fraction.
+	// Sorted iteration so the resulting pframe resource has byte-stable bytes (dedup).
 	resultPframe := pframes.pFrameBuilder()
-	for k, v in scalarOut {
+	for _, k in maps.getKeys(scalarOut) {
+		v := scalarOut[k]
 		resultPframe.add(k, trace.inject(v.spec), v.data)
 	}
 	if aaOut != undefined {
-		for k, v in aaOut {
+		for _, k in maps.getKeys(aaOut) {
+			v := aaOut[k]
 			resultPframe.add(k, trace.inject(v.spec), v.data)
 		}
 	}
 	resultPframe = resultPframe.build()
 
 	exportPframe := pframes.pFrameBuilder()
-	for k, v in exportOut {
+	for _, k in maps.getKeys(exportOut) {
+		v := exportOut[k]
 		exportPframe.add(k, trace.inject(v.spec), v.data)
 	}
 	exportPframe = exportPframe.build()
