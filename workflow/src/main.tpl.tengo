@@ -11,9 +11,17 @@ render := import("@platforma-sdk/workflow-tengo:render")
 smart := import("@platforma-sdk/workflow-tengo:smart")
 ll := import("@platforma-sdk/workflow-tengo:ll")
 pframes := import("@platforma-sdk/workflow-tengo:pframes")
-json := import("json")
+canonical := import("@platforma-sdk/workflow-tengo:canonical")
+maps := import("@platforma-sdk/workflow-tengo:maps")
+constants := import("@platforma-sdk/workflow-tengo:constants")
 
 processTpl := assets.importTemplate(":process")
+
+// JSON resource with byte-stable bytes — sorts map keys at every level.
+// Required for any JSON resource whose CID must be stable across runs (dedup).
+canonicalJsonResource := func(value) {
+	return smart.createValueResource(constants.RTYPE_JSON, canonical.encode(value))
+}
 
 REQUIRED_FEATURES := ["FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4"]
 
@@ -176,9 +184,10 @@ wf.body(func(args) {
 	fullChain := {}
 	cdr3Only := {}
 	if mode != "peptide" {
-		anyChain := false
-		for chain, feats in chainsFound {
-			anyChain = true
+		// Sorted iteration so partial-region messages append in stable order (chain A before B).
+		chainKeys := maps.getKeys(chainsFound)
+		for _, chain in chainKeys {
+			feats := chainsFound[chain]
 			present := 0
 			for rf in REQUIRED_FEATURES {
 				if feats[rf] { present += 1 }
@@ -191,15 +200,12 @@ wf.body(func(args) {
 				infoMessages += ["Partial-region input: " + string(present) + " of 7 required regions found for " + chainLabel(chain) + " chain — full-chain properties not computed. All seven regions (FR1, CDR1, FR2, CDR2, FR3, CDR3, FR4) are required."]
 			}
 		}
+		anyChain := len(chainKeys) > 0
 		if !anyChain {
 			infoMessages += ["No recognized VDJ region columns found in the input dataset."]
 		}
 
-		anyCdr3Only := false
-		for c, v in cdr3Only { anyCdr3Only = true }
-		anyFull := false
-		for c, v in fullChain { anyFull = true }
-		if anyCdr3Only && !anyFull {
+		if len(cdr3Only) > 0 && len(fullChain) == 0 {
 			infoMessages += ["CDR3-only input detected — full-chain properties not computed. To enable them, use a MiXCR preset that exports all VDJ regions."]
 		}
 		if receptor == "TCRGD" {
@@ -216,11 +222,11 @@ wf.body(func(args) {
 	seqTable := seqTb.build()
 
 	// Build the column-emission plan for the Python step + process template.
+	// maps.getKeys returns keys in stable sorted order — required for dedup so the
+	// JSON-encoded plan and the params resource have byte-identical CIDs across runs.
 	hasFv := mode != "peptide" && receptor == "IG" && fullChain["A"] && fullChain["B"]
-	chainList := []
-	for c, v in chainsFound { chainList += [c] }
-	fullChainList := []
-	for c, v in fullChain { fullChainList += [c] }
+	chainList := maps.getKeys(chainsFound)
+	fullChainList := maps.getKeys(fullChain)
 
 	plan := {
 		mode: mode,
@@ -238,7 +244,7 @@ wf.body(func(args) {
 		mem("4GiB").
 		cpu(1).
 		addFile("input.tsv", seqTable).
-		writeFile("plan.json", json.encode(plan)).
+		writeFile("plan.json", canonical.encode(plan)).
 		arg("--input").arg("input.tsv").
 		arg("--plan").arg("plan.json").
 		arg("--output").arg("properties.tsv").
@@ -255,7 +261,7 @@ wf.body(func(args) {
 		blockId: blockId,
 		propertiesTsv: propertiesTsv,
 		aaFractionTsv: aaFractionTsv,
-		params: smart.createJsonResource({
+		params: canonicalJsonResource({
 			datasetSpec: datasetSpec,
 			keyAxisIdx: keyAxisIdx,
 			mode: mode,
@@ -280,7 +286,7 @@ wf.body(func(args) {
 		}
 	}
 
-	infoBlob := smart.createJsonResource({
+	infoBlob := canonicalJsonResource({
 		mode: mode,
 		receptor: receptor,
 		coverageTier: coverageTier,
