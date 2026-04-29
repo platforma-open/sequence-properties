@@ -35,6 +35,16 @@ def read_plan(path: str | Path) -> dict[str, Any]:
     return json.loads(Path(path).read_text())
 
 
-def write_output_tsv(df: pl.DataFrame, path: str | Path) -> None:
-    """Write a TSV. Polars writes None as empty by default with `null_value=""`."""
+def write_output_tsv(
+    df: pl.DataFrame,
+    path: str | Path,
+    sort_keys: list[str] | None = None,
+) -> None:
+    """Write a TSV. Polars writes None as empty by default with `null_value=""`.
+
+    `sort_keys`, when provided, fixes row order — required for byte-stable
+    output so the resulting resource has a stable CID across runs (dedup).
+    """
+    if sort_keys:
+        df = df.sort(sort_keys)
     df.write_csv(path, separator="\t", null_value="")
