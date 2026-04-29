@@ -33,7 +33,10 @@ export const platforma = BlockModelV3.create(blockDataModel)
     if (data.inputAnchor === undefined) {
       throw new Error("Select an input dataset");
     }
-    return { inputAnchor: data.inputAnchor };
+    return {
+      inputAnchor: data.inputAnchor,
+      defaultBlockLabel: data.defaultBlockLabel ?? "Sequence Properties",
+    };
   })
   .output("inputOptions", (ctx) =>
     ctx.resultPool.getOptions(inputAnchorSpecs, { refsWithEnrichments: true }),

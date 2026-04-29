@@ -3,10 +3,12 @@ import type { PlDataTableStateV2, PlRef } from "@platforma-sdk/model";
 export type BlockData = {
   inputAnchor?: PlRef;
   tableState: PlDataTableStateV2;
+  defaultBlockLabel?: string;
 };
 
 export type BlockArgs = {
   inputAnchor: PlRef;
+  defaultBlockLabel: string;
 };
 
 export type WorkflowMode =
