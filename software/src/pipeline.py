@@ -15,6 +15,7 @@ Output column names are the contract from `workflow/src/process.tpl.tengo`.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import polars as pl
@@ -36,6 +37,8 @@ from properties import (
     isoelectric_point,
     molecular_weight,
 )
+
+log = logging.getLogger(__name__)
 
 PH = 7.0  # All charge values computed at pH 7 (spec default).
 
@@ -83,7 +86,13 @@ def run(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, pl.DataFrame]:
     """
     mode = plan["mode"]
     if mode == "peptide":
+        log.info("Running peptide mode (%d entities)", reads.height)
         return run_peptide(reads)
+    log.info(
+        "Running antibody/TCR mode (receptor=%s, %d clones)",
+        plan.get("receptor", "IG"),
+        reads.height,
+    )
     return run_antibody_tcr(reads, plan)
 
 
@@ -127,9 +136,11 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, pl.DataFrame]:
     keys = reads["entity_key"].to_list()
     seqs = reads["peptide_seq"].to_list()
 
+    log.info("Computing peptide scalar properties (%d sequences)", len(seqs))
     rows = [{"entity_key": k, **_compute_peptide_row(s)} for k, s in zip(keys, seqs)]
     properties = pl.DataFrame(rows, schema={"entity_key": pl.Utf8, **{c: pl.Float64 for c in PEPTIDE_PROPERTY_COLUMNS}})
 
+    log.info("Computing AA fractions (%d sequences)", len(seqs))
     aa_rows: list[dict[str, Any]] = []
     for k, s in zip(keys, seqs):
         fractions = aa_fractions(s)
@@ -283,6 +294,15 @@ def _compute_row_for(record: dict[str, Any], plan: dict[str, Any]) -> dict[str, 
 
 
 def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, pl.DataFrame]:
+    chains = plan.get("chains", [])
+    full_chains = plan.get("fullChains", [])
+    n = reads.height
+    if chains:
+        log.info("Computing CDR3 properties for chains %s (%d clones)", list(chains), n)
+    if full_chains:
+        log.info("Reconstructing full chains %s and computing VDJRegion properties", list(full_chains))
+    if plan.get("hasFv"):
+        log.info("Computing Fv properties (paired VH+VL)")
     rows = [_compute_row_for(record, plan) for record in reads.iter_rows(named=True)]
     out_cols = _planned_output_columns(plan)
     schema = {"entity_key": pl.Utf8, **{c: pl.Float64 for c in out_cols}}

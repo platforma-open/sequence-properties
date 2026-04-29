@@ -1,5 +1,5 @@
 import type { InferOutputsType } from "@platforma-sdk/model";
-import { BlockModelV3, createPlDataTableV3, OutputColumnProvider } from "@platforma-sdk/model";
+import { BlockModelV3, createPlDataTableV3 } from "@platforma-sdk/model";
 import { blockDataModel } from "./dataModel";
 import type { BlockArgs, WorkflowInfo } from "./types";
 
@@ -43,6 +43,7 @@ export const platforma = BlockModelV3.create(blockDataModel)
   )
   .output("info", (ctx) => ctx.outputs?.resolve("info")?.getDataAsJson<WorkflowInfo>())
   .output("isRunning", (ctx) => ctx.outputs?.getIsReadyOrError() === false)
+  .output("processingLog", (ctx) => ctx.outputs?.resolve("processingLog")?.getLogHandle())
   .outputWithStatus("propertiesTable", (ctx) => {
     if (ctx.data.inputAnchor === undefined) return undefined;
     const propertiesPf = ctx.outputs?.resolve("propertiesPf");
@@ -50,7 +51,6 @@ export const platforma = BlockModelV3.create(blockDataModel)
     return createPlDataTableV3(ctx, {
       tableState: ctx.data.tableState,
       columns: {
-        sources: [new OutputColumnProvider(propertiesPf)],
         anchors: { main: ctx.data.inputAnchor },
         selector: { mode: "enrichment", maxHops: 0 },
       },

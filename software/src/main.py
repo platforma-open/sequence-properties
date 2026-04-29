@@ -9,13 +9,27 @@ Invoked from the Tengo workflow as:
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 
 from io_layer import read_input_tsv, read_plan, write_output_tsv
 from pipeline import run
 
 
+def _configure_logging() -> None:
+    # Pipeline milestones go to stderr so the Tengo workflow's stderr stream
+    # captures them. force=True lets repeated test invocations re-bind handlers.
+    logging.basicConfig(
+        stream=sys.stderr,
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
+    _configure_logging()
     parser = argparse.ArgumentParser(prog="compute-properties")
     parser.add_argument("--input", required=True, help="path to input entity TSV")
     parser.add_argument("--plan", required=True, help="path to plan JSON")
