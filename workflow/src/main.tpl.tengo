@@ -1,25 +1,299 @@
-// "hello world"
+// Sequence Properties — workflow root.
+//
+// Detects modality (peptide vs antibody/TCR), collects amino-acid sequence columns,
+// builds a per-entity TSV, invokes the property computation step (Python — stub for now),
+// and hands off to process.tpl.tengo for output PColumn construction.
+
 wf := import("@platforma-sdk/workflow-tengo:workflow")
 exec := import("@platforma-sdk/workflow-tengo:exec")
-assets:= import("@platforma-sdk/workflow-tengo:assets")
+assets := import("@platforma-sdk/workflow-tengo:assets")
+render := import("@platforma-sdk/workflow-tengo:render")
+smart := import("@platforma-sdk/workflow-tengo:smart")
+ll := import("@platforma-sdk/workflow-tengo:ll")
+pframes := import("@platforma-sdk/workflow-tengo:pframes")
+json := import("json")
+
+processTpl := assets.importTemplate(":process")
+
+REQUIRED_FEATURES := ["FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4"]
+
+// Detect modality from the entity-axis spec (axes[len-1] of input anchor).
+detectMode := func(axisSpec) {
+	dom := axisSpec.domain
+	if axisSpec.name == "pl7.app/variantKey" {
+		if dom != undefined && dom["pl7.app/peptide/extractionRunId"] != undefined {
+			return "peptide"
+		}
+		if dom != undefined && dom["pl7.app/vdj/clonotypingRunId"] != undefined {
+			return "antibody_tcr_universal"
+		}
+	}
+	if axisSpec.name == "pl7.app/vdj/cloneId" {
+		return "antibody_tcr_legacy_bulk"
+	}
+	if axisSpec.name == "pl7.app/vdj/clonotypeKey" {
+		return "antibody_tcr_legacy_bulk"
+	}
+	if axisSpec.name == "pl7.app/vdj/scClonotypeKey" {
+		return "antibody_tcr_legacy_sc"
+	}
+	return ""
+}
+
+contains := func(arr, x) {
+	for v in arr {
+		if v == x { return true }
+	}
+	return false
+}
+
+wf.prepare(func(args) {
+	bb := wf.createPBundleBuilder()
+	bb.ignoreMissingDomains()
+	bb.addAnchor("main", args.inputAnchor)
+
+	// Peptide sequence column (universal naming, post-peptide-extraction).
+	bb.addMulti({
+		axes: [{ anchor: "main", idx: 1 }],
+		name: "pl7.app/sequence",
+		domain: {
+			"pl7.app/feature": "peptide",
+			"pl7.app/alphabet": "aminoacid"
+		}
+	}, "peptideSequences")
+
+	// VDJ region columns (legacy MiXCR path).
+	// Filter on alphabet only — NOT on pl7.app/vdj/isAssemblingFeature, per spec R4.
+	bb.addMulti({
+		axes: [{ anchor: "main", idx: 1 }],
+		name: "pl7.app/vdj/sequence",
+		domain: {
+			"pl7.app/alphabet": "aminoacid"
+		}
+	}, "vdjSequences")
+
+	// Universal-naming VDJ region columns (forward compatibility, post-MiXCR migration).
+	bb.addMulti({
+		axes: [{ anchor: "main", idx: 1 }],
+		name: "pl7.app/sequence",
+		domain: {
+			"pl7.app/alphabet": "aminoacid"
+		}
+	}, "universalSequences")
+
+	return { columns: bb.build() }
+})
 
 wf.body(func(args) {
-	python := exec.builder().
-		software(assets.importSoftware("@platforma-open/MiLaboratories.sequence-properties.software:hello-world-python")).
-		arg(args.name).
-		saveStdoutContent().
-		run()
-	pythonMessage := python.getStdoutContent()
+	blockId := wf.blockId().getDataAsJson()
+	bundle := args.columns
+	datasetSpec := bundle.getSpec(args.inputAnchor)
 
-	tengoMessage := "Hello from Tengo, " + args.name + "!"
+	axes := datasetSpec.axesSpec
+	if len(axes) == 0 {
+		ll.panic("input anchor has no axes")
+	}
+	keyAxisIdx := len(axes) - 1
+	keyAxisSpec := axes[keyAxisIdx]
+
+	mode := detectMode(keyAxisSpec)
+	if mode == "" {
+		ll.panic("no recognized sequence key axis found; connect a peptide extraction or MiXCR clonotyping dataset")
+	}
+
+	infoMessages := []
+	receptor := "IG" // R13b: default when receptor key absent
+	receptorSeen := false // tracks whether any column carried a recognised receptor value
+	chainsFound := {} // chain -> { feature -> 1 }
+
+	// Build per-entity TSV.
+	seqTb := pframes.tsvFileBuilder()
+	seqTb.setAxisHeader(keyAxisSpec, "entity_key")
+
+	if mode == "peptide" {
+		peptideCols := bundle.getColumns("peptideSequences")
+		if len(peptideCols) == 0 {
+			ll.panic("peptide mode detected but no peptide sequence column found (expected pl7.app/sequence with domain {feature: peptide, alphabet: aminoacid})")
+		}
+		seqTb.add(bundle.getColumn(peptideCols[0].key), { header: "peptide_seq" })
+
+	} else {
+		// Antibody/TCR. Try legacy MiXCR sequences then universal-naming.
+		vdjCols := bundle.getColumns("vdjSequences")
+		if len(vdjCols) == 0 {
+			vdjCols = bundle.getColumns("universalSequences")
+		}
+		if len(vdjCols) == 0 {
+			ll.panic("antibody/TCR mode detected but no amino-acid VDJ sequence columns found")
+		}
+
+		for s in vdjCols {
+			d := s.spec.domain
+			if d == undefined { continue }
+
+			feat := d["pl7.app/vdj/feature"]
+			if d["pl7.app/feature"] != undefined { feat = d["pl7.app/feature"] }
+			if !contains(REQUIRED_FEATURES, feat) { continue }
+
+			chain := d["pl7.app/vdj/scClonotypeChain"]
+			if chain == undefined || chain == "" {
+				// Bulk MiXCR data without chain annotation — assume primary chain "A".
+				chain = "A"
+			}
+
+			// Receptor — same value should be on every column.
+			r := d["pl7.app/vdj/receptor"]
+			if r == "IG" || r == "TCRAB" || r == "TCRGD" {
+				receptor = r
+				receptorSeen = true
+			}
+
+			header := chain + "_" + feat
+			seqTb.add(bundle.getColumn(s.key), { header: header })
+
+			if chainsFound[chain] == undefined { chainsFound[chain] = {} }
+			chainsFound[chain][feat] = 1
+		}
+	}
+
+	// Receptor-aware chain label for user-facing messages (R11b).
+	chainLabel := func(ch) {
+		if receptor == "TCRAB" {
+			if ch == "A" { return "alpha" }
+			if ch == "B" { return "beta" }
+		}
+		if receptor == "TCRGD" {
+			if ch == "A" { return "gamma" }
+			if ch == "B" { return "delta" }
+		}
+		// IG / unknown — antibody convention.
+		if ch == "A" { return "heavy" }
+		if ch == "B" { return "light" }
+		return ch
+	}
+
+	// Coverage tier per chain.
+	fullChain := {}
+	cdr3Only := {}
+	if mode != "peptide" {
+		anyChain := false
+		for chain, feats in chainsFound {
+			anyChain = true
+			present := 0
+			for rf in REQUIRED_FEATURES {
+				if feats[rf] { present += 1 }
+			}
+			if present == len(REQUIRED_FEATURES) {
+				fullChain[chain] = true
+			} else if feats["CDR3"] && present == 1 {
+				cdr3Only[chain] = true
+			} else if feats["CDR3"] {
+				infoMessages += ["Partial-region input: " + string(present) + " of 7 required regions found for " + chainLabel(chain) + " chain — full-chain properties not computed. All seven regions (FR1, CDR1, FR2, CDR2, FR3, CDR3, FR4) are required."]
+			}
+		}
+		if !anyChain {
+			infoMessages += ["No recognized VDJ region columns found in the input dataset."]
+		}
+
+		anyCdr3Only := false
+		for c, v in cdr3Only { anyCdr3Only = true }
+		anyFull := false
+		for c, v in fullChain { anyFull = true }
+		if anyCdr3Only && !anyFull {
+			infoMessages += ["CDR3-only input detected — full-chain properties not computed. To enable them, use a MiXCR preset that exports all VDJ regions."]
+		}
+		if receptor == "TCRGD" {
+			infoMessages += ["γδ TCR input detected — displaying with γδ-specific labels; Fv columns are not computed for TCR inputs."]
+		}
+		// R13b: warn when no recognised receptor was seen — defaults to IG.
+		if !receptorSeen && anyChain {
+			infoMessages += ["Receptor type not found on input columns (pl7.app/vdj/receptor); defaulting to antibody (IG) labels. Use a MiXCR preset that emits the receptor annotation if this is a TCR dataset."]
+		}
+	}
+
+	seqTb.mem("4GiB")
+	seqTb.cpu(1)
+	seqTable := seqTb.build()
+
+	// Build the column-emission plan for the Python step + process template.
+	hasFv := mode != "peptide" && receptor == "IG" && fullChain["A"] && fullChain["B"]
+	chainList := []
+	for c, v in chainsFound { chainList += [c] }
+	fullChainList := []
+	for c, v in fullChain { fullChainList += [c] }
+
+	plan := {
+		mode: mode,
+		receptor: receptor,
+		chains: chainList,
+		fullChains: fullChainList,
+		hasFv: hasFv
+	}
+
+	// Invoke property-computation software (Python — stub for now).
+	// The script reads input.tsv + plan.json and writes properties.tsv (+ aa_fraction.tsv in peptide mode).
+	soft := assets.importSoftware("@platforma-open/MiLaboratories.sequence-properties.software:compute-properties")
+	pyRun := exec.builder().
+		software(soft).
+		mem("4GiB").
+		cpu(1).
+		addFile("input.tsv", seqTable).
+		writeFile("plan.json", json.encode(plan)).
+		arg("--input").arg("input.tsv").
+		arg("--plan").arg("plan.json").
+		arg("--output").arg("properties.tsv").
+		arg("--aa-fraction").arg("aa_fraction.tsv").
+		saveFile("properties.tsv").
+		saveFile("aa_fraction.tsv").
+		run()
+
+	propertiesTsv := pyRun.getFile("properties.tsv")
+	aaFractionTsv := pyRun.getFile("aa_fraction.tsv")
+
+	// Hand off to process template for column-spec construction and pFrame export.
+	processResult := render.create(processTpl, {
+		blockId: blockId,
+		propertiesTsv: propertiesTsv,
+		aaFractionTsv: aaFractionTsv,
+		params: smart.createJsonResource({
+			datasetSpec: datasetSpec,
+			keyAxisIdx: keyAxisIdx,
+			mode: mode,
+			receptor: receptor,
+			chains: chainList,
+			fullChains: fullChainList,
+			hasFv: hasFv
+		})
+	})
+
+	propertiesPf := processResult.output("propertiesPf", 24 * 60 * 60 * 1000)
+	exportPframe := processResult.output("exportPframe", 24 * 60 * 60 * 1000)
+
+	coverageTier := "peptide"
+	if mode != "peptide" {
+		if len(fullChainList) > 0 {
+			coverageTier = "full_chain"
+		} else if len(infoMessages) > 0 {
+			coverageTier = "cdr3_only"
+		} else {
+			coverageTier = "partial"
+		}
+	}
+
+	infoBlob := smart.createJsonResource({
+		mode: mode,
+		receptor: receptor,
+		coverageTier: coverageTier,
+		messages: infoMessages
+	})
 
 	return {
 		outputs: {
-			pythonMessage: pythonMessage,
-			tengoMessage: tengoMessage
+			propertiesPf: propertiesPf,
+			info: infoBlob
 		},
-
-		exports: {}
+		exports: {
+			properties: exportPframe
+		}
 	}
 })
-

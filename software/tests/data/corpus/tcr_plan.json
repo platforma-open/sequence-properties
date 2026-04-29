@@ -1,0 +1,7 @@
+{
+  "mode": "antibody_tcr_legacy_bulk",
+  "receptor": "TCRAB",
+  "chains": ["A", "B"],
+  "fullChains": ["A", "B"],
+  "hasFv": false
+}
