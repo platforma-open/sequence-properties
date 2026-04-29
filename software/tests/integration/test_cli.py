@@ -187,3 +187,35 @@ def test_byte_changes_when_input_changes(tmp_path: Path):
     out_a, _ = _run_peptide(tmp_path, "_a", rows_a)
     out_b, _ = _run_peptide(tmp_path, "_b", rows_b)
     assert _sha256(out_a) != _sha256(out_b)
+
+
+# ---------------------------------------------------------------------------
+# CLI logging — pipeline milestones reach stderr so the workflow log stream
+# captures them and the UI surfaces them via PlLogView.
+# ---------------------------------------------------------------------------
+
+
+def test_cli_writes_progress_to_stderr(tmp_path: Path, capsys):
+    in_tsv = tmp_path / "input.tsv"
+    plan_json = tmp_path / "plan.json"
+    out_tsv = tmp_path / "out.tsv"
+    aa_tsv = tmp_path / "aa.tsv"
+    _write_tsv(
+        in_tsv,
+        [{"entity_key": "p1", "peptide_seq": "ACDEFGHIKL"}],
+        ["entity_key", "peptide_seq"],
+    )
+    plan_json.write_text(json.dumps({"mode": "peptide"}))
+
+    rc = main(
+        [
+            "--input", str(in_tsv),
+            "--plan", str(plan_json),
+            "--output", str(out_tsv),
+            "--aa-fraction", str(aa_tsv),
+        ]
+    )
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "peptide" in captured.err.lower(), captured.err
+    assert "scalar" in captured.err.lower() or "properties" in captured.err.lower(), captured.err

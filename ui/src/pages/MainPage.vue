@@ -3,12 +3,19 @@ import {
   PlAgDataTableV2,
   PlAlert,
   PlBlockPage,
+  PlBtnGhost,
   PlDropdownRef,
+  PlLogView,
+  PlMaskIcon24,
+  PlSlideModal,
   usePlDataTableSettingsV2,
 } from "@platforma-sdk/ui-vue";
+import { ref } from "vue";
 import { useApp } from "../app";
 
 const app = useApp();
+
+const logOpen = ref(false);
 
 const tableSettings = usePlDataTableSettingsV2({
   model: () => app.model.outputs.propertiesTable,
@@ -18,6 +25,14 @@ const tableSettings = usePlDataTableSettingsV2({
 <template>
   <PlBlockPage>
     <template #title>Sequence Properties</template>
+    <template #append>
+      <PlBtnGhost @click.stop="() => (logOpen = true)">
+        Logs
+        <template #append>
+          <PlMaskIcon24 name="file-logs" />
+        </template>
+      </PlBtnGhost>
+    </template>
 
     <PlDropdownRef
       v-model="app.model.data.inputAnchor"
@@ -37,4 +52,9 @@ const tableSettings = usePlDataTableSettingsV2({
 
     <PlAgDataTableV2 v-model="app.model.data.tableState" :settings="tableSettings" />
   </PlBlockPage>
+
+  <PlSlideModal v-model="logOpen" width="80%">
+    <template #title>Processing Log</template>
+    <PlLogView :log-handle="app.model.outputs.processingLog" />
+  </PlSlideModal>
 </template>

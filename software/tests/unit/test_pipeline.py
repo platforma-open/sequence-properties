@@ -10,6 +10,8 @@ Run from blocks/sequence-properties/software/:
 
 from __future__ import annotations
 
+import logging
+
 import polars as pl
 import pytest
 
@@ -237,3 +239,108 @@ class TestTcrModeSkipsFv:
         out = run(reads, plan)
         for p in FV_PROPS:
             assert f"{p}_Fv" not in out["properties"].columns
+
+
+# ---------------------------------------------------------------------------
+# User-facing logging
+# ---------------------------------------------------------------------------
+#
+# The block surfaces processing progress to users via stderr → workflow log
+# stream → PlLogView. Every run-mode and major path emits an INFO-level line
+# so users see what stage the block is in. Tests pin the canonical milestones;
+# wording can evolve, but each path must keep emitting at least one line.
+
+
+class TestPipelineLogging:
+    """run() and its sub-paths emit INFO-level milestones on the pipeline logger."""
+
+    def test_run_logs_peptide_mode_dispatch(self, caplog: pytest.LogCaptureFixture):
+        reads = pl.DataFrame({"entity_key": ["p1"], "peptide_seq": ["ACDEFGHIKL"]})
+        with caplog.at_level(logging.INFO, logger="pipeline"):
+            run(reads, {"mode": "peptide"})
+        assert any("peptide" in r.message.lower() for r in caplog.records), caplog.text
+
+    def test_peptide_path_logs_scalar_and_aa_milestones(
+        self, caplog: pytest.LogCaptureFixture
+    ):
+        reads = pl.DataFrame({"entity_key": ["p1"], "peptide_seq": ["ACDEFGHIKL"]})
+        with caplog.at_level(logging.INFO, logger="pipeline"):
+            run(reads, {"mode": "peptide"})
+        text = caplog.text.lower()
+        # One milestone for scalar properties, one for AA fractions.
+        assert "scalar" in text or "properties" in text, caplog.text
+        assert "aa" in text or "amino" in text or "fraction" in text, caplog.text
+
+    def test_run_logs_antibody_mode_dispatch(self, caplog: pytest.LogCaptureFixture):
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["c1"],
+                "A_CDR3": ["CARDYW"],
+                "B_CDR3": ["CQQYNS"],
+            }
+        )
+        plan = {
+            "mode": "antibody_tcr_legacy_sc",
+            "receptor": "IG",
+            "chains": ["A", "B"],
+            "fullChains": [],
+            "hasFv": False,
+        }
+        with caplog.at_level(logging.INFO, logger="pipeline"):
+            run(reads, plan)
+        assert any(
+            "antibody" in r.message.lower() or "tcr" in r.message.lower()
+            for r in caplog.records
+        ), caplog.text
+
+    def test_antibody_path_logs_cdr3_milestone(self, caplog: pytest.LogCaptureFixture):
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["c1"],
+                "A_CDR3": ["CARDYW"],
+                "B_CDR3": ["CQQYNS"],
+            }
+        )
+        plan = {
+            "mode": "antibody_tcr_legacy_sc",
+            "receptor": "IG",
+            "chains": ["A", "B"],
+            "fullChains": [],
+            "hasFv": False,
+        }
+        with caplog.at_level(logging.INFO, logger="pipeline"):
+            run(reads, plan)
+        assert any("cdr3" in r.message.lower() for r in caplog.records), caplog.text
+
+    def test_antibody_path_logs_full_chain_and_fv_milestones(
+        self, caplog: pytest.LogCaptureFixture
+    ):
+        regions = {
+            "A_FR1": ["EVQLVES"],
+            "A_CDR1": ["GFTFSSY"],
+            "A_FR2": ["AMSWVRQ"],
+            "A_CDR2": ["ISGSGGS"],
+            "A_FR3": ["TYYAESVKGRFTI"],
+            "A_CDR3": ["CARDYW"],
+            "A_FR4": ["WGQGTLV"],
+            "B_FR1": ["DIQMTQS"],
+            "B_CDR1": ["QSISSY"],
+            "B_FR2": ["LNWYQQK"],
+            "B_CDR2": ["AASSLQS"],
+            "B_FR3": ["GVPSRFSGSG"],
+            "B_CDR3": ["CQQYNS"],
+            "B_FR4": ["FGQGTKV"],
+        }
+        reads = pl.DataFrame({"entity_key": ["c1"], **regions})
+        plan = {
+            "mode": "antibody_tcr_legacy_bulk",
+            "receptor": "IG",
+            "chains": ["A", "B"],
+            "fullChains": ["A", "B"],
+            "hasFv": True,
+        }
+        with caplog.at_level(logging.INFO, logger="pipeline"):
+            run(reads, plan)
+        text = caplog.text.lower()
+        assert "full" in text or "vdj" in text or "vh" in text, caplog.text
+        assert "fv" in text, caplog.text

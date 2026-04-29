@@ -114,6 +114,20 @@ wf.body(func(args) {
 	infoMessages := []
 	receptor := "IG" // R13b: default when receptor key absent
 	receptorSeen := false
+
+	// Spec deviation SD-003 — see docs/spec-deviations.md.
+	// MiXCR places the receptor key on the clonotypeKey AXIS domain (the input
+	// anchor's secondary axis), not on per-region sequence column domains. Read
+	// from the axis first; the per-column check inside the loop stays as a
+	// fallback for non-MiXCR producers.
+	if keyAxisSpec.domain != undefined {
+		axisR := keyAxisSpec.domain["pl7.app/vdj/receptor"]
+		if axisR == "IG" || axisR == "TCRAB" || axisR == "TCRGD" {
+			receptor = axisR
+			receptorSeen = true
+		}
+	}
+
 	chainsFound := {} // chain -> { feature -> 1 }
 
 	seqTb := pframes.tsvFileBuilder()
@@ -143,7 +157,21 @@ wf.body(func(args) {
 
 			feat := d["pl7.app/vdj/feature"]
 			if d["pl7.app/feature"] != undefined { feat = d["pl7.app/feature"] }
+
+			// Spec deviation SD-002 — see docs/spec-deviations.md.
+			// MiXCR emits FR4 only as "FR4InFrame" (in-frame-filtered translation).
+			// Normalise to "FR4" so the REQUIRED_FEATURES check and downstream
+			// header naming treat it as the canonical FR4 region.
+			if feat == "FR4InFrame" { feat = "FR4" }
+
 			if !contains(REQUIRED_FEATURES, feat) { continue }
+
+			// Spec deviation SD-001 — see docs/spec-deviations.md.
+			// MiXCR single-cell emits primary + secondary alleles per chain. Spec assumes
+			// one allele per chain slot; secondary alleles would collide on the TSV header.
+			// Keep primary only.
+			idx := d["pl7.app/vdj/scClonotypeChain/index"]
+			if idx != undefined && idx != "primary" { continue }
 
 			chain := d["pl7.app/vdj/scClonotypeChain"]
 			if chain == undefined || chain == "" {
@@ -252,10 +280,12 @@ wf.body(func(args) {
 		arg("--aa-fraction").arg("aa_fraction.tsv").
 		saveFile("properties.tsv").
 		saveFile("aa_fraction.tsv").
+		saveStderrStream().
 		run()
 
 	propertiesTsv := pyRun.getFile("properties.tsv")
 	aaFractionTsv := pyRun.getFile("aa_fraction.tsv")
+	processingLog := pyRun.getStderrStream()
 
 	// Hand off to process template for column-spec construction and pFrame export.
 	processResult := render.create(processTpl, {
@@ -297,7 +327,8 @@ wf.body(func(args) {
 	return {
 		outputs: {
 			propertiesPf: propertiesPf,
-			info: infoBlob
+			info: infoBlob,
+			processingLog: processingLog
 		},
 		exports: {
 			properties: exportPframe
