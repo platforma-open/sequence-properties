@@ -1,5 +1,5 @@
 import type { InferOutputsType } from "@platforma-sdk/model";
-import { BlockModelV3, createPlDataTableV2 } from "@platforma-sdk/model";
+import { BlockModelV3, createPlDataTableV3, OutputColumnProvider } from "@platforma-sdk/model";
 import { blockDataModel } from "./dataModel";
 import type { BlockArgs, WorkflowInfo } from "./types";
 
@@ -44,9 +44,17 @@ export const platforma = BlockModelV3.create(blockDataModel)
   .output("info", (ctx) => ctx.outputs?.resolve("info")?.getDataAsJson<WorkflowInfo>())
   .output("isRunning", (ctx) => ctx.outputs?.getIsReadyOrError() === false)
   .outputWithStatus("propertiesTable", (ctx) => {
-    const cols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
-    if (cols === undefined) return undefined;
-    return createPlDataTableV2(ctx, cols, ctx.data.tableState);
+    if (ctx.data.inputAnchor === undefined) return undefined;
+    const propertiesPf = ctx.outputs?.resolve("propertiesPf");
+    if (propertiesPf === undefined) return undefined;
+    return createPlDataTableV3(ctx, {
+      tableState: ctx.data.tableState,
+      columns: {
+        sources: [new OutputColumnProvider(propertiesPf)],
+        anchors: { main: ctx.data.inputAnchor },
+        selector: { mode: "enrichment", maxHops: 0 },
+      },
+    });
   })
   .title(() => "Sequence Properties")
   .sections(() => [{ type: "link" as const, href: "/" as const, label: "Main" }])
