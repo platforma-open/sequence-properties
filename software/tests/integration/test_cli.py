@@ -121,7 +121,7 @@ def test_cli_antibody_full_coverage(tmp_path: Path):
 
 # ---------------------------------------------------------------------------
 # Byte-stability — properties.tsv / aa_fraction.tsv must hash identical across
-# runs for dedup to land on the workflow's canonical-input path.
+# runs of the same input so the resource lands on the dedup path.
 # ---------------------------------------------------------------------------
 
 

@@ -378,7 +378,7 @@ self.body(func(args) {
 	}
 
 	// Combined output pFrame — scalar properties + (peptide mode only) AA fraction.
-	// Sorted iteration so the resulting pframe resource has byte-stable bytes (dedup).
+	// Sorted .add() order keeps the pframe resource bytes stable across runs (dedup).
 	resultPframe := pframes.pFrameBuilder()
 	for _, k in maps.getKeys(scalarOut) {
 		v := scalarOut[k]

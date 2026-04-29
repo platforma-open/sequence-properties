@@ -1,8 +1,8 @@
 // Sequence Properties — workflow root.
 //
 // Detects modality (peptide vs antibody/TCR), collects amino-acid sequence columns,
-// builds a per-entity TSV, invokes the property computation step (Python — stub for now),
-// and hands off to process.tpl.tengo for output PColumn construction.
+// builds a per-entity TSV, runs the Python computation step, and hands off to
+// process.tpl.tengo for output PColumn construction.
 
 wf := import("@platforma-sdk/workflow-tengo:workflow")
 exec := import("@platforma-sdk/workflow-tengo:exec")
@@ -17,15 +17,17 @@ constants := import("@platforma-sdk/workflow-tengo:constants")
 
 processTpl := assets.importTemplate(":process")
 
-// JSON resource with byte-stable bytes — sorts map keys at every level.
-// Required for any JSON resource whose CID must be stable across runs (dedup).
+// JSON resource with sorted-key canonical bytes. smart.createJsonResource uses
+// Tengo's stdlib json.encode, which preserves Go's randomized map iteration —
+// resource bytes vary across runs and the CID becomes non-deterministic,
+// defeating dedup. canonical.encode sorts keys at every level so identical
+// values always produce identical bytes.
 canonicalJsonResource := func(value) {
 	return smart.createValueResource(constants.RTYPE_JSON, canonical.encode(value))
 }
 
 REQUIRED_FEATURES := ["FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4"]
 
-// Detect modality from the entity-axis spec (axes[len-1] of input anchor).
 detectMode := func(axisSpec) {
 	dom := axisSpec.domain
 	if axisSpec.name == "pl7.app/variantKey" {
@@ -111,10 +113,9 @@ wf.body(func(args) {
 
 	infoMessages := []
 	receptor := "IG" // R13b: default when receptor key absent
-	receptorSeen := false // tracks whether any column carried a recognised receptor value
+	receptorSeen := false
 	chainsFound := {} // chain -> { feature -> 1 }
 
-	// Build per-entity TSV.
 	seqTb := pframes.tsvFileBuilder()
 	seqTb.setAxisHeader(keyAxisSpec, "entity_key")
 
@@ -126,7 +127,8 @@ wf.body(func(args) {
 		seqTb.add(bundle.getColumn(peptideCols[0].key), { header: "peptide_seq" })
 
 	} else {
-		// Antibody/TCR. Try legacy MiXCR sequences then universal-naming.
+		// Legacy MiXCR sequences first; fall back to universal naming for forward
+		// compatibility with the post-MiXCR-migration column shape.
 		vdjCols := bundle.getColumns("vdjSequences")
 		if len(vdjCols) == 0 {
 			vdjCols = bundle.getColumns("universalSequences")
@@ -149,7 +151,7 @@ wf.body(func(args) {
 				chain = "A"
 			}
 
-			// Receptor — same value should be on every column.
+			// Same receptor value is expected on every input column; last seen wins.
 			r := d["pl7.app/vdj/receptor"]
 			if r == "IG" || r == "TCRAB" || r == "TCRGD" {
 				receptor = r
@@ -180,11 +182,10 @@ wf.body(func(args) {
 		return ch
 	}
 
-	// Coverage tier per chain.
 	fullChain := {}
 	cdr3Only := {}
 	if mode != "peptide" {
-		// Sorted iteration so partial-region messages append in stable order (chain A before B).
+		// Sorted iteration so partial-region messages append in a stable order.
 		chainKeys := maps.getKeys(chainsFound)
 		for _, chain in chainKeys {
 			feats := chainsFound[chain]
@@ -221,9 +222,9 @@ wf.body(func(args) {
 	seqTb.cpu(1)
 	seqTable := seqTb.build()
 
-	// Build the column-emission plan for the Python step + process template.
-	// maps.getKeys returns keys in stable sorted order — required for dedup so the
-	// JSON-encoded plan and the params resource have byte-identical CIDs across runs.
+	// Sorted lists feed both plan.json (Python step input) and the params
+	// resource (process template input) — they must hash deterministically so
+	// the CIDs land on the dedup path across runs of identical input.
 	hasFv := mode != "peptide" && receptor == "IG" && fullChain["A"] && fullChain["B"]
 	chainList := maps.getKeys(chainsFound)
 	fullChainList := maps.getKeys(fullChain)
@@ -236,8 +237,8 @@ wf.body(func(args) {
 		hasFv: hasFv
 	}
 
-	// Invoke property-computation software (Python — stub for now).
-	// The script reads input.tsv + plan.json and writes properties.tsv (+ aa_fraction.tsv in peptide mode).
+	// Python step contract: reads input.tsv + plan.json; writes properties.tsv,
+	// plus aa_fraction.tsv in peptide mode (empty body in antibody/TCR mode).
 	soft := assets.importSoftware("@platforma-open/MiLaboratories.sequence-properties.software:compute-properties")
 	pyRun := exec.builder().
 		software(soft).
