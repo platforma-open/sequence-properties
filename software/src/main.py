@@ -26,8 +26,10 @@ def main(argv: list[str] | None = None) -> int:
     reads = read_input_tsv(args.input)
     plan = read_plan(args.plan)
     outputs = run(reads, plan)
-    write_output_tsv(outputs["properties"], args.output)
-    write_output_tsv(outputs["aa_fraction"], args.aa_fraction)
+    write_output_tsv(outputs["properties"], args.output, sort_keys=["entity_key"])
+    write_output_tsv(
+        outputs["aa_fraction"], args.aa_fraction, sort_keys=["entity_key", "aminoAcid"]
+    )
     return 0
 
 
