@@ -157,12 +157,10 @@ class TestQuantizationDoesNotPropagateInternally:
         from pka_tables import IPC2_PROTEIN
         from properties import isoelectric_point
 
-        # The same VH chain used in test_golden_values; pi pinned at 7.018372
-        # which has 6 decimal digits of meaning. The internal function must
-        # keep them.
+        # Same VH chain used in test_golden_values; pi pinned at 6.006653
+        # under IPC 2.0 protein pKa. The internal function must keep digits
+        # beyond the 3rd decimal — quantization is a boundary concern only.
         vh = "EVQLVESGFTFSSYAMSWVRQISGSGGSTYYAESVKGRFTICARDYWWGQGTLV"
         pi = isoelectric_point(vh, IPC2_PROTEIN, include_cys=False)
-        assert pi == pytest.approx(7.018372, abs=1e-6)
-        # Critically: the value carries digits beyond the 3rd decimal — it
-        # has NOT been rounded by the internal function.
+        assert pi == pytest.approx(6.006653, abs=1e-6)
         assert pi != round(pi, CID_QUANTIZE_DECIMALS)

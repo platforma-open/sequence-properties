@@ -32,34 +32,38 @@ class PKaSet:
 
 
 # IPC 2.0 peptide pKa set.
+# Source: Kozlowski 2021, Supplementary Table S1; cross-checked against
+# http://ipc2-isoelectric-point.org/theory.html (paper-linked DOI 10.1093/nar/gkab295).
 IPC2_PEPTIDE = PKaSet(
     name="IPC2_peptide",
     side_chain={
-        "C": 7.555,  # Cys
-        "D": 3.872,  # Asp
-        "E": 4.412,  # Glu
-        "H": 5.637,  # His
-        "K": 9.052,  # Lys
-        "R": 11.84,  # Arg
-        "Y": 10.85,  # Tyr
+        "C": 9.439,  # Cys
+        "D": 3.969,  # Asp
+        "E": 4.507,  # Glu
+        "H": 6.439,  # His
+        "K": 8.165,  # Lys
+        "R": 11.493,  # Arg
+        "Y": 9.153,  # Tyr
     },
-    n_terminus=9.094,
-    c_terminus=2.869,
+    n_terminus=7.947,
+    c_terminus=2.977,
 )
 
 
 # IPC 2.0 protein pKa set.
+# Source: Kozlowski 2021, Supplementary Table S1; cross-checked against
+# http://ipc2-isoelectric-point.org/theory.html (paper-linked DOI 10.1093/nar/gkab295).
 IPC2_PROTEIN = PKaSet(
     name="IPC2_protein",
     side_chain={
-        "C": 8.578,
-        "D": 3.887,
-        "E": 4.317,
-        "H": 6.018,
-        "K": 10.517,
-        "R": 12.503,
-        "Y": 10.071,
+        "C": 7.890,
+        "D": 3.766,
+        "E": 4.497,
+        "H": 5.492,
+        "K": 9.247,
+        "R": 10.223,
+        "Y": 11.491,
     },
-    n_terminus=9.564,
-    c_terminus=2.383,
+    n_terminus=5.779,
+    c_terminus=6.065,
 )

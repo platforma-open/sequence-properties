@@ -57,8 +57,8 @@ class TestVHGoldenValues:
     @pytest.mark.parametrize(
         "fn_name, expected",
         [
-            ("charge", 0.000578),
-            ("pi", 7.018372),
+            ("charge", -0.836811),
+            ("pi", 6.006653),
             ("gravy", -0.111111),
             ("mw", 6050.6567),
             ("eox", 22460.0),
@@ -96,10 +96,10 @@ class TestVLGoldenValues:
     """VL (chain B). Same pKa context as VH."""
 
     def test_vl_charge(self):
-        assert charge_at_ph(VL, 7.0, IPC2_PROTEIN, include_cys=False) == pytest.approx(1.994916, abs=ABS_TOL)
+        assert charge_at_ph(VL, 7.0, IPC2_PROTEIN, include_cys=False) == pytest.approx(1.149394, abs=ABS_TOL)
 
     def test_vl_pi(self):
-        assert isoelectric_point(VL, IPC2_PROTEIN, include_cys=False) == pytest.approx(9.798889, abs=ABS_TOL)
+        assert isoelectric_point(VL, IPC2_PROTEIN, include_cys=False) == pytest.approx(9.16571, abs=ABS_TOL)
 
 
 class TestFvGoldenValues:
@@ -107,11 +107,11 @@ class TestFvGoldenValues:
 
     def test_fv_charge(self):
         # Additive: must equal charge(VH) + charge(VL).
-        assert fv_charge(VH, VL, 7.0, IPC2_PROTEIN) == pytest.approx(1.995494, abs=ABS_TOL)
+        assert fv_charge(VH, VL, 7.0, IPC2_PROTEIN) == pytest.approx(0.312583, abs=ABS_TOL)
 
     def test_fv_pi(self):
         # Per-chain charge sum bisection — distinct from concatenated-chain pI.
-        assert fv_isoelectric_point(VH, VL, IPC2_PROTEIN) == pytest.approx(9.330627, abs=ABS_TOL)
+        assert fv_isoelectric_point(VH, VL, IPC2_PROTEIN) == pytest.approx(7.633606, abs=ABS_TOL)
 
     def test_fv_extinction_oxidised(self):
         ox, _ = fv_extinction_coefficients(VH, VL)

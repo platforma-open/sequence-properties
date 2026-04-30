@@ -231,6 +231,12 @@ wf.body(func(args) {
 				cdr3Only[chain] = true
 			} else if feats["CDR3"] {
 				infoMessages += ["Partial-region input: " + string(present) + " of 7 required regions found for " + chainLabel(chain) + " chain — full-chain properties not computed. All seven regions (FR1, CDR1, FR2, CDR2, FR3, CDR3, FR4) are required."]
+			} else {
+				// Chain has 1-6 of 7 regions but lacks CDR3 — neither CDR3-mode nor
+				// full-chain mode applies. Without R11b's surfaced silent fallthrough
+				// the user would see neither full-chain nor CDR3 columns and no
+				// explanation why.
+				infoMessages += ["Partial-region input: " + string(present) + " of 7 required regions found for " + chainLabel(chain) + " chain (CDR3 absent) — no per-chain properties computed. CDR3 is required for per-chain charge / hydrophobicity; all seven regions are required for full-chain properties."]
 			}
 		}
 		anyChain := len(chainKeys) > 0

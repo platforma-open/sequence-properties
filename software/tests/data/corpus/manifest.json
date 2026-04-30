@@ -16,7 +16,7 @@
         }
       },
       "pep_polya_10": {
-        "notes": "Closed-form: every dipeptide is AA → II = (10/10)*9*1.0 = 9.0; aliphatic = 100.0; gravy = 1.8.",
+        "notes": "Closed-form: every dipeptide is AA → II = (10/10)*9*1.0 = 9.0; aliphatic = 100.0; gravy = 1.8. With no charged side chains, pI is (Nterm + Cterm)/2 — under IPC 2.0 peptide set (7.947 + 2.977)/2 = 5.462.",
         "expected": {
           "instability_peptide": 9.0,
           "gravy_peptide": 1.8,
@@ -25,7 +25,7 @@
           "eox_peptide": 0.0,
           "ered_peptide": 0.0,
           "mw_peptide": {"min": 728.5, "max": 729.1},
-          "pi_peptide": {"min": 5.9, "max": 6.1}
+          "pi_peptide": {"min": 5.3, "max": 5.6}
         }
       },
       "pep_short": {
@@ -39,9 +39,9 @@
         }
       },
       "pep_polybasic_150": {
-        "notes": "150 R's — with peptide pKa_R=11.84 the polybasic side chains exceed C-terminus contribution at pH 14 (need ≥ ~145 R's), so charge stays positive and pI is NA per spec NA guard.",
+        "notes": "150 R's — under IPC 2.0 peptide pKa_R = 11.493 the Arg charge is largely lost by pH 14 (each Arg contributes ~0.003), so the lone C-terminus acid drives a real zero crossing around pH 13.6–13.8. Polybasic NA path requires N_R > ~320 under IPC 2.0; this case now demonstrates the high-pI polybasic regime, not NA.",
         "expected": {
-          "pi_peptide": "na",
+          "pi_peptide": {"min": 13.3, "max": 13.9},
           "charge_peptide": "not_na",
           "instability_peptide": "not_na"
         }

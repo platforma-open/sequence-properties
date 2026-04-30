@@ -347,12 +347,31 @@ self.body(func(args) {
 	}
 
 	// Stamp blockId on the export-only columns (lets downstream blocks distinguish runs).
+	// Build a fresh column with a cloned domain dict — mutating col.spec.domain
+	// in place would also stamp blockId on outputSpecs.columns since both lists
+	// share the same column references.
 	exportColumns := []
 	for col in columns {
 		if col.spec.annotations && col.spec.annotations["pl7.app/isScore"] == "true" {
-			if !col.spec.domain { col.spec.domain = {} }
-			col.spec.domain["pl7.app/blockId"] = blockId
-			exportColumns += [col]
+			newDomain := {}
+			if col.spec.domain {
+				for k, v in col.spec.domain {
+					newDomain[k] = v
+				}
+			}
+			newDomain["pl7.app/blockId"] = blockId
+			exportColumns += [{
+				column: col.column,
+				id: col.id,
+				naRegex: col.naRegex,
+				allowNA: col.allowNA,
+				spec: {
+					name: col.spec.name,
+					valueType: col.spec.valueType,
+					domain: newDomain,
+					annotations: col.spec.annotations
+				}
+			}]
 		}
 	}
 

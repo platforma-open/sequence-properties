@@ -257,3 +257,218 @@ The existing per-column check inside the loop is kept as a fallback.
 - Receptor-to-label mapping unchanged: `process.tpl.tengo` `labelFragments()`.
 - Verified via `mcp__pl__get_block_state` `inputSpec` output on the
   sequence-properties block in TinyTrees project (NG:0x388003).
+
+---
+
+## SD-004: TSV Peptide Column Named `peptide_seq`
+
+**Status:** applied
+**Date:** 2026-04-29
+**Affected file:** `workflow/src/main.tpl.tengo`, `software/src/pipeline.py`
+
+### Symptom
+
+Spec contract drift: the spec says peptide-mode TSV columns are
+`entity_key, sequence`, but the implementation emits and consumes
+`entity_key, peptide_seq`.
+
+### Root cause
+
+The Tengo seq-table builder (`main.tpl.tengo` chain-collection loop)
+sets the peptide column header to `peptide_seq`, and `pipeline.run_peptide`
+reads `reads["peptide_seq"]`. Tengo and Python sides agree; spec wording
+differs.
+
+### Trigger
+
+Every peptide-mode run.
+
+### Impact
+
+None functionally — the contract is internal to the Tengo↔Python step.
+No downstream consumer reads this TSV.
+
+### Options considered
+
+**A. Keep `peptide_seq`. [chosen]**
+The more descriptive name disambiguates from the antibody-mode region
+columns (`A_CDR3` etc.) — useful when debugging mixed datasets in a
+shared parquet inspector.
+
+**B. Rename to `sequence` to match the spec literally.**
+Pure cosmetic rename; both sides update. Defer until/unless a third party
+needs to consume this TSV directly.
+
+### Decision
+
+**A.** No release impact, more readable name.
+
+### References
+
+- Spec section: `README.md` L457 (Peptide mode TSV columns).
+- Internal contract — not exposed to PColumns or downstream blocks.
+
+---
+
+## SD-005: TSV Antibody Schema Omits `receptor_type` Column
+
+**Status:** applied
+**Date:** 2026-04-29
+**Affected file:** `workflow/src/main.tpl.tengo`, `software/src/pipeline.py`
+
+### Symptom
+
+Spec contract drift: the spec L460 lists `receptor_type` as a TSV column
+("literal string `IG`, `TCRAB`, or `TCRGD` — taken from the
+`pl7.app/vdj/receptor` domain annotation"). The implementation does not
+emit `receptor_type` in the TSV; receptor flows via `plan.json` instead.
+
+### Root cause
+
+`receptor_type` is constant per dataset (every clone shares the same
+receptor). Encoding it as a per-row TSV column would duplicate the value
+N times — once per clonotype. `plan.json` is the natural carrier for
+per-run scalars.
+
+### Trigger
+
+Every antibody/TCR run.
+
+### Impact
+
+None functionally — Python reads receptor from `plan.json` (`run_antibody_tcr`).
+The Tengo side passes it through `plan` already.
+
+### Options considered
+
+**A. Carry receptor in `plan.json`. [chosen]**
+Matches the per-run shape. Smaller TSV, single source of truth. Already
+implemented.
+
+**B. Emit `receptor_type` per row.**
+Spec-literal but redundant — N copies of one value.
+
+**C. Carry receptor in both.**
+Two sources of truth, drift risk.
+
+### Decision
+
+**A.** plan.json is the right shape for per-run constants.
+
+### References
+
+- Spec section: `README.md` L460 (Antibody mode TSV columns).
+- Plan schema: `main.tpl.tengo` (`plan := { mode, receptor, chains, ... }`).
+
+---
+
+## SD-006: Last-Axis Selection Instead of First-Matching Axis Scan
+
+**Status:** applied
+**Date:** 2026-04-29
+**Affected file:** `workflow/src/main.tpl.tengo`
+
+### Symptom
+
+Spec wording (R1a) says the workflow should "scan axes for the first
+matching anchor name". The implementation picks the last axis
+unconditionally:
+
+```tengo
+keyAxisIdx := len(axes) - 1
+keyAxisSpec := axes[keyAxisIdx]
+```
+
+### Root cause
+
+In every PColumn shape this block consumes (peptide variants, MiXCR bulk
+clonotype, MiXCR single-cell clonotype), the entity key is always the
+last axis — by convention `[sampleId, variantKey/cloneId/clonotypeKey]`.
+A scan would find the same axis on every input.
+
+### Trigger
+
+Every run. The `detectMode` function is then called on `keyAxisSpec` to
+classify the modality.
+
+### Impact
+
+None observed. Would only diverge from the spec if an upstream producer
+emitted the entity key on a non-last axis — currently unobserved.
+
+### Options considered
+
+**A. Keep last-axis selection. [chosen]**
+Simpler than scanning, correct for every input shape we have observed,
+and `detectMode` validates the axis name afterwards (panics on unknown).
+
+**B. Implement first-matching-axis scan per spec.**
+Loop through `axesSpec` until `detectMode` returns non-empty. One extra
+loop, no behavioural change on observed shapes. Consider during a
+broader anchor-resolution refactor.
+
+### Decision
+
+**A.** No data shape today benefits from B; revisit if we get an input
+with a non-last entity-key axis.
+
+### References
+
+- Spec section: `README.md` R1a (anchor resolution).
+- Anchor specs: `model/src/index.ts` (`inputAnchorSpecs`) — every spec
+  declares the entity key as the second of two axes.
+
+---
+
+## SD-007: Accept `pl7.app/vdj/clonotypeKey` Alongside `pl7.app/vdj/cloneId`
+
+**Status:** applied
+**Date:** 2026-04-29
+**Affected file:** `model/src/index.ts` (`inputAnchorSpecs`),
+`workflow/src/main.tpl.tengo` (`detectMode`)
+
+### Symptom
+
+Spec README enumerates the legacy MiXCR bulk anchor as
+`{ axes: [..., { name: "pl7.app/vdj/cloneId" }] }`. The implementation
+accepts `pl7.app/vdj/clonotypeKey` as an additional anchor and treats it
+as the same modality.
+
+### Root cause
+
+Current MiXCR output emits `pl7.app/vdj/clonotypeKey` for what was
+historically `pl7.app/vdj/cloneId`. Accepting both lets the block work on
+both archived and current MiXCR clonotyping outputs without a forced
+migration on the data side.
+
+### Trigger
+
+Any MiXCR clonotyping output produced after the `cloneId →
+clonotypeKey` rename.
+
+### Impact
+
+None — both axis names route to `antibody_tcr_legacy_bulk` modality,
+identical downstream handling.
+
+### Options considered
+
+**A. Accept both. [chosen]**
+Forward and backward compatible. Two `inputAnchorSpecs` entries; one
+extra branch in `detectMode`.
+
+**B. Drop `cloneId`, accept only `clonotypeKey`.**
+Breaks ingest of archived MiXCR runs. Avoid until a stated migration
+window.
+
+**C. Drop `clonotypeKey`, accept only `cloneId`.**
+Breaks every current MiXCR run. Not viable.
+
+### Decision
+
+**A.** Compatibility wins for negligible code complexity.
+
+### References
+
+- Anchor specs: `model/src/index.ts:inputAnchorSpecs`.
+- Modality detection: `main.tpl.tengo:detectMode`.
