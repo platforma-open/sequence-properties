@@ -317,8 +317,6 @@ def fv_extinction_coefficients(vh: str, vl: str) -> tuple[float | None, float | 
     formula gives the correct disulfide count when each chain has an even
     number of Cys; a chain with an odd count contributes floor(odd/2) bonds.
     """
-    if is_invalid_sequence(vh) or is_invalid_sequence(vl):
-        return (None, None)
     ox_vh, red_vh = extinction_coefficients(vh)
     ox_vl, red_vl = extinction_coefficients(vl)
     if ox_vh is None or red_vh is None or ox_vl is None or red_vl is None:

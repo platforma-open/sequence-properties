@@ -130,32 +130,10 @@ class TestPipelineQuantizationApplied:
     # Antibody full-coverage output: charge_*, pi_*, including Fv, all rounded.
     # Non-rounded columns (gravy / mw / instability / aliphatic / aromaticity / ε)
     # must keep full precision.
-    def test_antibody_run_rounds_all_charge_and_pi_columns(self):
-        regions = {
-            "A_FR1": ["EVQLVES"],
-            "A_CDR1": ["GFTFSSY"],
-            "A_FR2": ["AMSWVRQ"],
-            "A_CDR2": ["ISGSGGS"],
-            "A_FR3": ["TYYAESVKGRFTI"],
-            "A_CDR3": ["CARDYW"],
-            "A_FR4": ["WGQGTLV"],
-            "B_FR1": ["DIQMTQS"],
-            "B_CDR1": ["QSISSY"],
-            "B_FR2": ["LNWYQQK"],
-            "B_CDR2": ["AASSLQS"],
-            "B_FR3": ["GVPSRFSGSG"],
-            "B_CDR3": ["CQQYNS"],
-            "B_FR4": ["FGQGTKV"],
-        }
-        reads = pl.DataFrame({"entity_key": ["c1"], **regions})
-        plan = {
-            "mode": "antibody_tcr_legacy_bulk",
-            "receptor": "IG",
-            "chains": ["A", "B"],
-            "fullChains": ["A", "B"],
-            "hasFv": True,
-        }
-        out = run(reads, plan)
+    def test_antibody_run_rounds_all_charge_and_pi_columns(
+        self, antibody_full_one_clone: pl.DataFrame, antibody_full_plan: dict
+    ):
+        out = run(antibody_full_one_clone, antibody_full_plan)
         row = out["properties"].row(0, named=True)
 
         rounded_cols = [c for c in row if any(c.startswith(p) for p in CID_QUANTIZE_PREFIXES)]
