@@ -35,7 +35,6 @@ export const platforma = BlockModelV3.create(blockDataModel)
     }
     return {
       inputAnchor: data.inputAnchor,
-      defaultBlockLabel: data.defaultBlockLabel ?? "Sequence Properties",
     };
   })
   .output("inputOptions", (ctx) =>
@@ -59,7 +58,7 @@ export const platforma = BlockModelV3.create(blockDataModel)
       },
     });
   })
-  .title(() => "Sequence Properties")
+  .title((ctx) => ctx.data.defaultBlockLabel || "Sequence Properties")
   .sections(() => [{ type: "link" as const, href: "/" as const, label: "Main" }])
   .done();
 

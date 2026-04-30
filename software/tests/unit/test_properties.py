@@ -224,13 +224,27 @@ class TestIsoelectricPoint:
         assert pi is not None
         assert 4.5 < pi < 7.5
 
-    # Polybasic synthetic sequence — combined Arg side chains exceed the lone
-    # C-terminus contribution at pH 14, so the charge function never crosses
-    # zero in [0, 14] and pI is NA. Uses the protein pKa set (pKa_R = 12.503).
-    # Per spec §Defaults: "Possible in extreme all-basic or all-acidic synthetic
-    # sequences" — guard before bisecting must emit NA, not loop forever.
-    def test_pi_polybasic_no_zero_crossing_returns_none(self):
-        pi = isoelectric_point("R" * 50, IPC2_PROTEIN, include_cys=False)
+    # No zero crossing → NA. Spec §Defaults: "Possible in extreme all-basic
+    # or all-acidic synthetic sequences" — the same-sign-endpoint guard must
+    # emit NA, not loop forever or clamp to a boundary.
+    #
+    # Construct a synthetic pKa set that's pure-base at every group; under
+    # this set the molecule charge is positive at every pH in [0, 14] and
+    # the bisection has no zero to find. The polybasic R*50 example used to
+    # trigger this under IPC 1.0 pKa_R = 12.503 but doesn't under IPC 2.0
+    # (pKa_R = 10.223 with C-term acid pKa = 6.065 produces a real zero
+    # crossing around pH 12 even for pure-Arg sequences) — switching the
+    # test to a direct demonstration of the no-crossing branch.
+    def test_pi_no_zero_crossing_returns_none(self):
+        from pka_tables import PKaSet
+        all_base = PKaSet(
+            name="synthetic_all_base",
+            side_chain={"K": 100.0, "R": 100.0, "H": 100.0,
+                        "C": 100.0, "D": 100.0, "E": 100.0, "Y": 100.0},
+            n_terminus=100.0,
+            c_terminus=100.0,
+        )
+        pi = isoelectric_point("KRHKR", all_base, include_cys=True)
         assert pi is None
 
     # Polyacidic always crosses: even at pH 0, the protonated N-terminus

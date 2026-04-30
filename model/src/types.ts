@@ -3,12 +3,14 @@ import type { PlDataTableStateV2, PlRef } from "@platforma-sdk/model";
 export type BlockData = {
   inputAnchor?: PlRef;
   tableState: PlDataTableStateV2;
+  // UI-only state. Tracks the selected input dataset's label so the block
+  // title can reflect it — populated by the UI watcher in app.ts. Not
+  // projected into BlockArgs because the workflow does not consume it.
   defaultBlockLabel?: string;
 };
 
 export type BlockArgs = {
   inputAnchor: PlRef;
-  defaultBlockLabel: string;
 };
 
 export type WorkflowMode =
