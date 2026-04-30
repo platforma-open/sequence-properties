@@ -8,6 +8,7 @@ dev = [
     "polars>=1.39.0",
     "numpy>=2.0.0",
     "pyarrow>=18.0.0",
+    "biopython>=1.84",
     "pytest>=9.0.2",
     "pytest-cov>=6.0.0",
 ]

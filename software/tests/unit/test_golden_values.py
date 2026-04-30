@@ -1,16 +1,20 @@
-"""Characterization tests — pin the exact numeric output for representative
-sequences so refactoring drift is caught.
+"""Characterization tests — pin the BioPython-backed numeric output for
+representative sequences so refactoring drift is caught.
 
-These are NOT correctness checks against an external reference (those live in
-test_properties.py with closed-form expectations like instability=9.0 for
-poly-A-10). They snapshot the *current* output to pin behaviour during
-refactoring. If a value changes intentionally (formula fix, pKa update),
-update the golden number here as part of the change.
+These are NOT correctness checks against an independent reference (those live
+in test_properties.py with closed-form expectations like instability=9.0 for
+poly-A-10). They snapshot the *current* BioPython-backed output to pin
+behaviour during refactoring. The IPC 2.0 pKa values are spec-blessed; the
+mass / hydropathy / extinction / instability tables come from BioPython
+ProtParam (also spec-blessed per M1 strategy direction).
 
 The reconstructed VH / VL pair below matches the `ab_full_paired` row in
 the e2e corpus, so every refactor exercises the same sequence path the
 corpus does — but at numeric precision the corpus's range bounds don't
 catch.
+
+If a value changes intentionally (BioPython version update, pKa update,
+spec change), update the golden number here as part of the change.
 """
 
 from __future__ import annotations
@@ -56,7 +60,7 @@ class TestVHGoldenValues:
             ("charge", 0.000578),
             ("pi", 7.018372),
             ("gravy", -0.111111),
-            ("mw", 6050.730200),
+            ("mw", 6050.6567),
             ("eox", 22460.0),
             ("ered", 22460.0),
             ("instability", 38.753704),
@@ -118,4 +122,4 @@ class TestFvGoldenValues:
         assert red == pytest.approx(32430.0, abs=ABS_TOL)
 
     def test_fv_mw(self):
-        assert fv_molecular_weight(VH, VL) == pytest.approx(11517.686500, abs=ABS_TOL)
+        assert fv_molecular_weight(VH, VL) == pytest.approx(11517.5517, abs=ABS_TOL)

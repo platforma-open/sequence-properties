@@ -27,6 +27,7 @@ def test_cli_peptide_mode(tmp_path: Path):
     plan_json = tmp_path / "plan.json"
     out_tsv = tmp_path / "out.tsv"
     aa_tsv = tmp_path / "aa.tsv"
+    stats_json = tmp_path / "stats.json"
 
     _write_tsv(
         in_tsv,
@@ -45,6 +46,8 @@ def test_cli_peptide_mode(tmp_path: Path):
             str(out_tsv),
             "--aa-fraction",
             str(aa_tsv),
+            "--stats",
+            str(stats_json),
         ]
     )
     assert rc == 0
@@ -64,6 +67,7 @@ def test_cli_antibody_full_coverage(tmp_path: Path):
     plan_json = tmp_path / "plan.json"
     out_tsv = tmp_path / "out.tsv"
     aa_tsv = tmp_path / "aa.tsv"
+    stats_json = tmp_path / "stats.json"
 
     columns = (
         ["entity_key"]
@@ -110,6 +114,8 @@ def test_cli_antibody_full_coverage(tmp_path: Path):
             str(out_tsv),
             "--aa-fraction",
             str(aa_tsv),
+            "--stats",
+            str(stats_json),
         ]
     )
     assert rc == 0
@@ -135,6 +141,7 @@ def _run_peptide(tmp_path: Path, suffix: str, rows: list[dict[str, str]]) -> tup
     plan_json = tmp_path / f"plan{suffix}.json"
     out_tsv = tmp_path / f"out{suffix}.tsv"
     aa_tsv = tmp_path / f"aa{suffix}.tsv"
+    stats_json = tmp_path / f"stats{suffix}.json"
     _write_tsv(in_tsv, rows, ["entity_key", "peptide_seq"])
     plan_json.write_text(json.dumps({"mode": "peptide"}))
     rc = main(
@@ -143,6 +150,7 @@ def _run_peptide(tmp_path: Path, suffix: str, rows: list[dict[str, str]]) -> tup
             "--plan", str(plan_json),
             "--output", str(out_tsv),
             "--aa-fraction", str(aa_tsv),
+            "--stats", str(stats_json),
         ]
     )
     assert rc == 0
@@ -200,6 +208,7 @@ def test_cli_writes_progress_to_stderr(tmp_path: Path, capsys):
     plan_json = tmp_path / "plan.json"
     out_tsv = tmp_path / "out.tsv"
     aa_tsv = tmp_path / "aa.tsv"
+    stats_json = tmp_path / "stats.json"
     _write_tsv(
         in_tsv,
         [{"entity_key": "p1", "peptide_seq": "ACDEFGHIKL"}],
@@ -213,6 +222,7 @@ def test_cli_writes_progress_to_stderr(tmp_path: Path, capsys):
             "--plan", str(plan_json),
             "--output", str(out_tsv),
             "--aa-fraction", str(aa_tsv),
+            "--stats", str(stats_json),
         ]
     )
     assert rc == 0
