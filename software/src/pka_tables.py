@@ -30,9 +30,6 @@ class PKaSet:
     n_terminus: float  # pKa of the free α-amino terminus
     c_terminus: float  # pKa of the free α-carboxyl terminus
 
-    def get(self, aa: str) -> float | None:
-        return self.side_chain.get(aa)
-
 
 # Acidic residues — deprotonate to negative charge as pH rises.
 ACIDIC_AAS = frozenset("DECY")
