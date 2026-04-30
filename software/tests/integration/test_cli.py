@@ -61,6 +61,53 @@ def test_cli_peptide_mode(tmp_path: Path):
     assert aa.height == 20  # 1 entity × 20 standard AAs
 
 
+# R11c contract — CLI writes stats.json containing per-chain median CDR3
+# length. The Tengo workflow reads this file via getDataAsJson() and applies
+# the VHH detection rule downstream.
+def test_cli_stats_json_contains_chain_medians(tmp_path: Path):
+    in_tsv = tmp_path / "input.tsv"
+    plan_json = tmp_path / "plan.json"
+    out_tsv = tmp_path / "out.tsv"
+    aa_tsv = tmp_path / "aa.tsv"
+    stats_json = tmp_path / "stats.json"
+
+    _write_tsv(
+        in_tsv,
+        [
+            {"entity_key": "c1", "A_CDR3": "CARDYW", "B_CDR3": "CQQYNS"},
+            {"entity_key": "c2", "A_CDR3": "CARGFW", "B_CDR3": "CQHFSS"},
+        ],
+        ["entity_key", "A_CDR3", "B_CDR3"],
+    )
+    plan_json.write_text(
+        json.dumps(
+            {
+                "mode": "antibody_tcr_legacy_sc",
+                "receptor": "IG",
+                "chains": ["A", "B"],
+                "fullChains": [],
+                "hasFv": False,
+            }
+        )
+    )
+
+    rc = main(
+        [
+            "--input", str(in_tsv),
+            "--plan", str(plan_json),
+            "--output", str(out_tsv),
+            "--aa-fraction", str(aa_tsv),
+            "--stats", str(stats_json),
+        ]
+    )
+    assert rc == 0
+
+    stats = json.loads(stats_json.read_text())
+    assert "medianCdr3Length" in stats
+    assert stats["medianCdr3Length"]["A"] == 6.0  # CARDYW + CARGFW both 6
+    assert stats["medianCdr3Length"]["B"] == 6.0
+
+
 # Antibody mode end-to-end — confirms full-chain + Fv emission via CLI.
 def test_cli_antibody_full_coverage(tmp_path: Path):
     in_tsv = tmp_path / "input.tsv"

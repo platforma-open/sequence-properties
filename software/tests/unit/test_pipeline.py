@@ -208,6 +208,117 @@ class TestAntibodyTcrPartialClone:
         assert rows["c2"]["charge_A_CDR3"] is not None
 
 
+class TestR11cStats:
+    """`run()` returns a `stats` dict consumed by the workflow info layer for
+    R11c VHH detection. Median CDR3 length per chain is the load-bearing field.
+    """
+
+    # Peptide mode has no chains — stats present, medianCdr3Length empty.
+    def test_peptide_mode_emits_empty_medians(self):
+        reads = pl.DataFrame({"entity_key": ["p1"], "peptide_seq": ["ACDEFGHIKL"]})
+        out = run(reads, {"mode": "peptide"})
+        assert out["stats"] == {"medianCdr3Length": {}}
+
+    # Antibody mode with only chain A CDR3 — only chain A appears in medians.
+    # This is the VHH precondition shape the workflow checks.
+    def test_chain_a_only_emits_only_chain_a_median(self):
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["c1", "c2", "c3"],
+                "A_CDR3": ["CARDYW", "CARGFW", "CARWWWWWWWWWWWWWWWWW"],  # 6, 6, 21
+            }
+        )
+        plan = {
+            "mode": "antibody_tcr_legacy_sc",
+            "receptor": "IG",
+            "chains": ["A"],
+            "fullChains": [],
+            "hasFv": False,
+        }
+        out = run(reads, plan)
+        medians = out["stats"]["medianCdr3Length"]
+        assert "A" in medians
+        assert "B" not in medians
+        # Sorted lengths: [6, 6, 21] → odd count, middle is index 1 → 6.
+        assert medians["A"] == pytest.approx(6.0)
+
+    # Even-count median: average of the two middle values.
+    def test_even_count_median_averages_middle_two(self):
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["c1", "c2", "c3", "c4"],
+                "A_CDR3": ["CCCC", "CCCCCC", "CCCCCCCC", "CCCCCCCCCC"],  # 4, 6, 8, 10
+            }
+        )
+        plan = {
+            "mode": "antibody_tcr_legacy_sc",
+            "receptor": "IG",
+            "chains": ["A"],
+            "fullChains": [],
+            "hasFv": False,
+        }
+        out = run(reads, plan)
+        # (6 + 8) / 2 = 7.0
+        assert out["stats"]["medianCdr3Length"]["A"] == pytest.approx(7.0)
+
+    # Effective-length convention: ambiguity codes excluded from the length
+    # computation, matching all other property functions.
+    def test_median_excludes_ambiguity_codes_from_length(self):
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["c1"],
+                "A_CDR3": ["CARDYW" + "X" * 5],  # raw 11 chars, effective 6
+            }
+        )
+        plan = {
+            "mode": "antibody_tcr_legacy_sc",
+            "receptor": "IG",
+            "chains": ["A"],
+            "fullChains": [],
+            "hasFv": False,
+        }
+        out = run(reads, plan)
+        assert out["stats"]["medianCdr3Length"]["A"] == pytest.approx(6.0)
+
+    # Chain listed in plan but its CDR3 column missing from reads — chain absent
+    # from medians. Defensive against plan/data mismatch.
+    def test_chain_missing_cdr3_column_absent_from_medians(self):
+        reads = pl.DataFrame({"entity_key": ["c1"], "A_CDR3": ["CARDYW"]})
+        plan = {
+            "mode": "antibody_tcr_legacy_sc",
+            "receptor": "IG",
+            "chains": ["A", "B"],  # B in plan but B_CDR3 not in reads
+            "fullChains": [],
+            "hasFv": False,
+        }
+        out = run(reads, plan)
+        medians = out["stats"]["medianCdr3Length"]
+        assert "A" in medians
+        assert "B" not in medians
+
+    # Chain CDR3 column present but every value empty — chain absent from
+    # medians (no length data to compute over).
+    def test_chain_with_all_empty_cdr3_absent_from_medians(self):
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["c1", "c2"],
+                "A_CDR3": ["CARDYW", "CARGFW"],
+                "B_CDR3": ["", ""],
+            }
+        )
+        plan = {
+            "mode": "antibody_tcr_legacy_sc",
+            "receptor": "IG",
+            "chains": ["A", "B"],
+            "fullChains": [],
+            "hasFv": False,
+        }
+        out = run(reads, plan)
+        medians = out["stats"]["medianCdr3Length"]
+        assert "A" in medians
+        assert "B" not in medians
+
+
 class TestTcrModeSkipsFv:
     """TCR receptor types must NOT emit Fv columns even with both chains full."""
 
