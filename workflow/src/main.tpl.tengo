@@ -212,6 +212,7 @@ wf.body(func(args) {
 
 	fullChain := {}
 	cdr3Only := {}
+	chainsWithCdr3 := []
 	if mode != "peptide" {
 		// Sorted iteration so partial-region messages append in a stable order.
 		chainKeys := maps.getKeys(chainsFound)
@@ -220,6 +221,9 @@ wf.body(func(args) {
 			present := 0
 			for rf in REQUIRED_FEATURES {
 				if feats[rf] { present += 1 }
+			}
+			if feats["CDR3"] {
+				chainsWithCdr3 += [chain]
 			}
 			if present == len(REQUIRED_FEATURES) {
 				fullChain[chain] = true
@@ -266,7 +270,9 @@ wf.body(func(args) {
 	}
 
 	// Python step contract: reads input.tsv + plan.json; writes properties.tsv,
-	// plus aa_fraction.tsv in peptide mode (empty body in antibody/TCR mode).
+	// plus aa_fraction.tsv in peptide mode (empty body in antibody/TCR mode), plus
+	// stats.json (dataset-level scalars consumed by the info layer — e.g. R11c
+	// median CDR-H3 length per chain).
 	soft := assets.importSoftware("@platforma-open/MiLaboratories.sequence-properties.software:compute-properties")
 	pyRun := exec.builder().
 		software(soft).
@@ -278,33 +284,17 @@ wf.body(func(args) {
 		arg("--plan").arg("plan.json").
 		arg("--output").arg("properties.tsv").
 		arg("--aa-fraction").arg("aa_fraction.tsv").
+		arg("--stats").arg("stats.json").
 		saveFile("properties.tsv").
 		saveFile("aa_fraction.tsv").
+		saveFileContent("stats.json").
 		saveStderrStream().
 		run()
 
 	propertiesTsv := pyRun.getFile("properties.tsv")
 	aaFractionTsv := pyRun.getFile("aa_fraction.tsv")
+	statsResource := pyRun.getFileContent("stats.json")
 	processingLog := pyRun.getStderrStream()
-
-	// Hand off to process template for column-spec construction and pFrame export.
-	processResult := render.create(processTpl, {
-		blockId: blockId,
-		propertiesTsv: propertiesTsv,
-		aaFractionTsv: aaFractionTsv,
-		params: canonicalJsonResource({
-			datasetSpec: datasetSpec,
-			keyAxisIdx: keyAxisIdx,
-			mode: mode,
-			receptor: receptor,
-			chains: chainList,
-			fullChains: fullChainList,
-			hasFv: hasFv
-		})
-	})
-
-	propertiesPf := processResult.output("propertiesPf", 24 * 60 * 60 * 1000)
-	exportPframe := processResult.output("exportPframe", 24 * 60 * 60 * 1000)
 
 	coverageTier := "peptide"
 	if mode != "peptide" {
@@ -317,12 +307,31 @@ wf.body(func(args) {
 		}
 	}
 
-	infoBlob := canonicalJsonResource({
-		mode: mode,
-		receptor: receptor,
-		coverageTier: coverageTier,
-		messages: infoMessages
+	// Hand off to process template for column specs, pFrame export, and
+	// info-blob assembly. The info blob depends on Python's stats output, so
+	// it builds inside the render template rather than at workflow body time.
+	processResult := render.create(processTpl, {
+		blockId: blockId,
+		propertiesTsv: propertiesTsv,
+		aaFractionTsv: aaFractionTsv,
+		stats: statsResource,
+		params: canonicalJsonResource({
+			datasetSpec: datasetSpec,
+			keyAxisIdx: keyAxisIdx,
+			mode: mode,
+			receptor: receptor,
+			chains: chainList,
+			chainsWithCdr3: chainsWithCdr3,
+			fullChains: fullChainList,
+			hasFv: hasFv,
+			coverageTier: coverageTier,
+			infoMessages: infoMessages
+		})
 	})
+
+	propertiesPf := processResult.output("propertiesPf", 24 * 60 * 60 * 1000)
+	exportPframe := processResult.output("exportPframe", 24 * 60 * 60 * 1000)
+	infoBlob := processResult.output("info", 24 * 60 * 60 * 1000)
 
 	return {
 		outputs: {

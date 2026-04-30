@@ -27,6 +27,7 @@ from properties import (
     aliphatic_index,
     aromaticity,
     charge_at_ph,
+    effective_length,
     extinction_coefficients,
     fv_charge,
     fv_extinction_coefficients,
@@ -77,17 +78,21 @@ def _quantize_for_cid(df: pl.DataFrame) -> pl.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def run(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, pl.DataFrame]:
-    """Dispatch by mode. Returns a dict with two frames:
+def run(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch by mode. Returns a dict with three entries:
 
-    - `properties`: one row per entity, columns per the plan.
-    - `aa_fraction`: long-format (entity_key, aminoAcid, value).
+    - `properties` (DataFrame): one row per entity, columns per the plan.
+    - `aa_fraction` (DataFrame): long-format (entity_key, aminoAcid, value).
       Empty body when mode is not peptide.
+    - `stats` (dict): dataset-level stats consumed by the workflow info layer
+      (e.g. R11c VHH detection — median CDR-H3 length per chain).
     """
     mode = plan["mode"]
     if mode == "peptide":
         log.info("Running peptide mode (%d entities)", reads.height)
-        return run_peptide(reads)
+        out = run_peptide(reads)
+        out["stats"] = {"medianCdr3Length": {}}
+        return out
     log.info(
         "Running antibody/TCR mode (receptor=%s, %d clones)",
         plan.get("receptor", "IG"),
@@ -293,7 +298,29 @@ def _compute_row_for(record: dict[str, Any], plan: dict[str, Any]) -> dict[str, 
     return out
 
 
-def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, pl.DataFrame]:
+def _median_cdr3_length_by_chain(reads: pl.DataFrame, chains: list[str]) -> dict[str, float]:
+    """Median effective length of CDR3 sequences per chain.
+
+    Only chains with at least one non-empty CDR3 in the dataset appear in the
+    result. Effective length excludes ambiguity codes — matches the convention
+    used by all property functions.
+    """
+    out: dict[str, float] = {}
+    for ch in chains:
+        col = f"{ch}_CDR3"
+        if col not in reads.columns:
+            continue
+        lengths = [effective_length(s) for s in reads[col].to_list() if s]
+        if not lengths:
+            continue
+        lengths.sort()
+        n = len(lengths)
+        mid = n // 2
+        out[ch] = float(lengths[mid]) if n % 2 == 1 else 0.5 * (lengths[mid - 1] + lengths[mid])
+    return out
+
+
+def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
     chains = plan.get("chains", [])
     full_chains = plan.get("fullChains", [])
     n = reads.height
@@ -308,4 +335,9 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, pl.
     schema = {"entity_key": pl.Utf8, **{c: pl.Float64 for c in out_cols}}
     properties = pl.DataFrame(rows, schema=schema)
     aa_fraction = pl.DataFrame(schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64})
-    return {"properties": _quantize_for_cid(properties), "aa_fraction": aa_fraction}
+    stats = {"medianCdr3Length": _median_cdr3_length_by_chain(reads, chains)}
+    return {
+        "properties": _quantize_for_cid(properties),
+        "aa_fraction": aa_fraction,
+        "stats": stats,
+    }

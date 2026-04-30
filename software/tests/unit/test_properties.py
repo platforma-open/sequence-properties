@@ -130,12 +130,14 @@ class TestExtinctionCoefficients:
 
 
 class TestMolecularWeight:
-    """MW = Σ residue masses + 18.0153 (single H₂O for the terminal OH+H)."""
+    """MW = Σ residue masses + one H₂O (BioPython ProtParam mass table)."""
 
-    # GGG: 3 × Gly (57.0519) + H₂O (18.0153). Hand-computable reference.
+    # GGG: 3 × Gly + one H₂O. BioPython ProtParam value 189.1692 — pinned per
+    # spec direction that BioPython is the reference. Tolerance 0.01 matches
+    # the .1f display precision.
     def test_three_glycines(self):
         mw = molecular_weight("GGG")
-        assert mw == pytest.approx(3 * 57.0519 + 18.0153, abs=1e-3)
+        assert mw == pytest.approx(189.1692, abs=0.01)
 
     def test_invalid_sequence_returns_none(self):
         assert molecular_weight("") is None

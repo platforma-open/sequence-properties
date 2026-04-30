@@ -18,26 +18,22 @@ Cysteine handling — three contexts, three rules, per spec:
 
 Ionizable-Cys inclusion is controlled at the call site by selecting the right
 pKa-set wrapper (see `charge_at_ph` / `isoelectric_point`).
+
+Implementation: BioPython's `Bio.SeqUtils.ProtParam.ProteinAnalysis` and
+`Bio.SeqUtils.IsoelectricPoint.IsoelectricPoint` provide GRAVY, MW,
+aromaticity, instability index, extinction coefficient, charge, and pI per
+spec M1 strategy. The IPC 2.0 pKa values are injected onto the IsoelectricPoint
+instance after construction (`pos_pKs` / `neg_pKs`), overriding BioPython's
+default Bjellqvist values per spec direction.
 """
 
 from __future__ import annotations
 
-import math
-from collections.abc import Callable
+from Bio.SeqUtils.IsoelectricPoint import IsoelectricPoint
+from Bio.SeqUtils.ProtParam import ProteinAnalysis
 
-from aa_tables import (
-    AROMATIC_AAS,
-    AVG_RESIDUE_MASS,
-    EC_DISULFIDE,
-    EC_TRP,
-    EC_TYR,
-    H2O_AVG_MASS,
-    KD_SCALE,
-    STANDARD_AA_SET,
-    STANDARD_AAS,
-)
-from instability import diwv
-from pka_tables import ACIDIC_AAS, BASIC_AAS, PKaSet
+from aa_tables import STANDARD_AA_SET, STANDARD_AAS
+from pka_tables import PKaSet
 
 # ---------------------------------------------------------------------------
 # Sequence cleanup
@@ -87,6 +83,10 @@ def _prepare(seq: str | None) -> str | None:
     sequence, or None when the input is invalid OR when nothing standard
     remains after cleaning. Centralises the common prelude every property
     function used to repeat.
+
+    BioPython's ProtParam/IsoelectricPoint reject any non-standard residue
+    with a ValueError, so cleaning to standard-AAs-only is a precondition for
+    every BioPython call below.
     """
     if is_invalid_sequence(seq):
         return None
@@ -99,29 +99,37 @@ def _prepare(seq: str | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _residue_charge(aa: str, ph: float, pka_set: PKaSet, include_cys: bool) -> float:
-    """Charge contribution of a single ionizable side chain at the given pH.
+def _ipc2_isoelectric_point(seq: str, pka_set: PKaSet, include_cys: bool) -> IsoelectricPoint:
+    """BioPython IsoelectricPoint with IPC 2.0 pKa overrides on the instance.
 
-    Acids (D, E, Y, C when included): −1 / (1 + 10^(pKa − pH))
-    Bases (H, K, R):                  +1 / (1 + 10^(pH − pKa))
+    Override `pos_pKs` / `neg_pKs` after construction; BioPython reads these
+    dicts at `charge_at_pH` time, so per-instance overrides take effect
+    without touching module globals.
 
-    `include_cys=False` excludes Cys from the ionizable sum. Used for full VH
-    / VL chains where Cys is assumed to be in disulfide bonds.
+    `include_cys=False` omits Cys from `neg_pKs` for the full-chain rule
+    (Cys assumed disulfide-bonded).
     """
-    if aa == "C" and not include_cys:
-        return 0.0
-    pka = pka_set.get(aa)
-    if pka is None:
-        return 0.0
-    if aa in ACIDIC_AAS:
-        return -1.0 / (1.0 + 10.0 ** (pka - ph))
-    if aa in BASIC_AAS:
-        return 1.0 / (1.0 + 10.0 ** (ph - pka))
-    return 0.0
+    ip = IsoelectricPoint(seq)
+    ip.pos_pKs = {
+        "Nterm": pka_set.n_terminus,
+        "K": pka_set.side_chain["K"],
+        "R": pka_set.side_chain["R"],
+        "H": pka_set.side_chain["H"],
+    }
+    ip.neg_pKs = {
+        "Cterm": pka_set.c_terminus,
+        "D": pka_set.side_chain["D"],
+        "E": pka_set.side_chain["E"],
+        "Y": pka_set.side_chain["Y"],
+    }
+    if include_cys and "C" in pka_set.side_chain:
+        ip.neg_pKs["C"] = pka_set.side_chain["C"]
+    return ip
 
 
 def charge_at_ph(seq: str, ph: float, pka_set: PKaSet, include_cys: bool = True) -> float | None:
-    """Net charge of a sequence at a given pH (Henderson-Hasselbalch).
+    """Net charge of a sequence at a given pH (Henderson-Hasselbalch via
+    BioPython's IsoelectricPoint, with IPC 2.0 pKa overrides).
 
     Returns None when the sequence is invalid or when no standard residues
     remain after non-standard filtering.
@@ -129,140 +137,116 @@ def charge_at_ph(seq: str, ph: float, pka_set: PKaSet, include_cys: bool = True)
     cleaned = _prepare(seq)
     if cleaned is None:
         return None
-
-    # N- and C-terminus: each free terminus contributes one ionizable group.
-    # N-terminal amine — basic; C-terminal carboxyl — acidic.
-    n_term = 1.0 / (1.0 + 10.0 ** (ph - pka_set.n_terminus))
-    c_term = -1.0 / (1.0 + 10.0 ** (pka_set.c_terminus - ph))
-    side_chain_total = sum(_residue_charge(c, ph, pka_set, include_cys) for c in cleaned)
-    return n_term + c_term + side_chain_total
-
-
-def _bisect_zero(
-    f: Callable[[float], float],
-    lo: float,
-    hi: float,
-    tolerance: float = 0.001,
-) -> float | None:
-    """Find the pH at which f(pH) = 0 by bisection over [lo, hi]. Returns
-    None when both endpoints have the same sign — i.e. no zero crossing in
-    range — instead of looping forever or clamping to a boundary. The same-
-    sign guard is the load-bearing piece of the spec's NA rule for polybasic /
-    polyacidic synthetic sequences.
-    """
-    f_lo, f_hi = f(lo), f(hi)
-    if math.copysign(1.0, f_lo) == math.copysign(1.0, f_hi):
-        return None
-    while hi - lo > tolerance:
-        mid = 0.5 * (lo + hi)
-        f_mid = f(mid)
-        if f_mid == 0.0:
-            return mid
-        if math.copysign(1.0, f_mid) == math.copysign(1.0, f_lo):
-            lo, f_lo = mid, f_mid
-        else:
-            hi, f_hi = mid, f_mid
-    return 0.5 * (lo + hi)
+    return _ipc2_isoelectric_point(cleaned, pka_set, include_cys).charge_at_pH(ph)
 
 
 def isoelectric_point(
     seq: str,
     pka_set: PKaSet,
     include_cys: bool = True,
-    tolerance: float = 0.001,
 ) -> float | None:
-    """pI by bisection on `charge_at_ph` over [0, 14]. Returns None when the
-    sequence has no zero crossing in range or after non-standard filtering
-    yields an empty sequence.
+    """pI as the pH where BioPython's IPC 2.0-overridden charge function = 0.
+
+    BioPython's `IsoelectricPoint.pi()` brackets [4.05, 12.0] internally —
+    too narrow for polyacidic / polybasic synthetic sequences whose true pI
+    sits outside that range. Bisect [0, 14] locally using BioPython's
+    `charge_at_pH`, keeping the formula and pKa BioPython's.
+
+    Returns None when no zero crossing exists in [0, 14], or after
+    non-standard filtering yields an empty sequence.
     """
     cleaned = _prepare(seq)
     if cleaned is None:
         return None
-    return _bisect_zero(
-        lambda ph: charge_at_ph(cleaned, ph, pka_set, include_cys=include_cys) or 0.0,
-        0.0,
-        14.0,
-        tolerance,
-    )
+    ip = _ipc2_isoelectric_point(cleaned, pka_set, include_cys)
+    return _bisect_charge_zero(ip.charge_at_pH)
+
+
+def _bisect_charge_zero(charge_fn, lo: float = 0.0, hi: float = 14.0, tol: float = 0.001) -> float | None:
+    """Bisect for charge_fn(pH) = 0 over [lo, hi]. Returns None when both
+    endpoints have the same sign (no zero crossing in range).
+    """
+    f_lo = charge_fn(lo)
+    f_hi = charge_fn(hi)
+    if (f_lo > 0 and f_hi > 0) or (f_lo < 0 and f_hi < 0):
+        return None
+    while hi - lo > tol:
+        mid = 0.5 * (lo + hi)
+        f_mid = charge_fn(mid)
+        if f_mid == 0.0:
+            return mid
+        if (f_mid > 0) == (f_lo > 0):
+            lo, f_lo = mid, f_mid
+        else:
+            hi, f_hi = mid, f_mid
+    return 0.5 * (lo + hi)
 
 
 # ---------------------------------------------------------------------------
-# Bulk-composition properties
+# Bulk-composition properties (BioPython ProtParam)
 # ---------------------------------------------------------------------------
+
+
+def _protein_analysis(seq: str) -> ProteinAnalysis | None:
+    """Cleaned BioPython ProteinAnalysis object, or None when invalid.
+
+    BioPython rejects non-standard residues — clean first.
+    """
+    cleaned = _prepare(seq)
+    if cleaned is None:
+        return None
+    return ProteinAnalysis(cleaned)
 
 
 def gravy(seq: str) -> float | None:
-    """Kyte-Doolittle GRAVY: mean hydropathy across standard residues. NA when
-    no standard residues remain.
-    """
-    cleaned = _prepare(seq)
-    if cleaned is None:
-        return None
-    return sum(KD_SCALE[c] for c in cleaned) / len(cleaned)
+    """Kyte-Doolittle GRAVY: mean hydropathy across standard residues."""
+    p = _protein_analysis(seq)
+    return None if p is None else p.gravy()
 
 
 def molecular_weight(seq: str) -> float | None:
-    """Average mass (Da) — sum of residue masses + one H₂O. NA when no
-    standard residues remain.
-    """
-    cleaned = _prepare(seq)
-    if cleaned is None:
-        return None
-    return sum(AVG_RESIDUE_MASS[c] for c in cleaned) + H2O_AVG_MASS
+    """Average mass (Da). BioPython uses the same residue-mass table we did."""
+    p = _protein_analysis(seq)
+    return None if p is None else p.molecular_weight()
 
 
 def extinction_coefficients(seq: str) -> tuple[float | None, float | None]:
     """Pace et al. extinction coefficients at 280 nm. Returns
     `(ε_oxidized, ε_reduced)`.
 
-    Sequences with no Tyr or Trp emit 0 (not NA) — the caller can interpret
-    "0 means A280 quantification not possible" downstream. The tuple is
-    (None, None) only when the sequence itself is invalid (empty / stop).
+    BioPython's `molar_extinction_coefficient` returns `(reduced, oxidized)` —
+    we flip to match the spec column order (oxidized first).
+
+    Sequences with no Tyr or Trp emit (0, 0); invalid sequences emit (None, None).
     """
-    if is_invalid_sequence(seq):
+    p = _protein_analysis(seq)
+    if p is None:
         return (None, None)
-    counts = aa_counts(seq)
-    y = counts["Y"]
-    w = counts["W"]
-    c = counts["C"]
-    eps_red = float(y * EC_TYR + w * EC_TRP)
-    eps_ox = eps_red + (c // 2) * EC_DISULFIDE
-    return (eps_ox, eps_red)
+    reduced, oxidized = p.molar_extinction_coefficient()
+    return (float(oxidized), float(reduced))
 
 
 def instability_index(seq: str) -> float | None:
-    """Guruprasad instability index. Requires effective length ≥ 10 — emits
-    NA otherwise per spec.
-
-    The 10-residue floor uses *effective length* (post non-standard filter),
-    not the raw input string. A sequence padded with X to look long is short.
+    """Guruprasad instability index. Spec floor: effective length ≥ 10 (NA
+    otherwise) — BioPython has no such floor, so we enforce it here.
     """
     cleaned = _prepare(seq)
     if cleaned is None or len(cleaned) < 10:
         return None
-    n = len(cleaned)
-    total = 0.0
-    counted = 0
-    for i in range(n - 1):
-        v = diwv(cleaned[i], cleaned[i + 1])
-        if v is None:
-            continue  # impossible after _prepare — defensive
-        total += v
-        counted += 1
-    if counted == 0:
-        return None
-    return (10.0 / n) * total
+    return ProteinAnalysis(cleaned).instability_index()
 
 
 def aliphatic_index(seq: str) -> float | None:
     """Ikai 1980 aliphatic index. AI = 100 × (X_A + 2.9·X_V + 3.9·(X_I + X_L))
     where X_aa is mole fraction over the cleaned sequence.
+
+    Custom — BioPython has no aliphatic index helper.
     """
     cleaned = _prepare(seq)
     if cleaned is None:
         return None
     n = len(cleaned)
-    counts = aa_counts(seq)
+    counts = aa_counts(cleaned)
     x_a = counts["A"] / n
     x_v = counts["V"] / n
     x_i = counts["I"] / n
@@ -271,28 +255,23 @@ def aliphatic_index(seq: str) -> float | None:
 
 
 def aromaticity(seq: str) -> float | None:
-    """Aromatic fraction (F + W + Y) / effective_length."""
-    cleaned = _prepare(seq)
-    if cleaned is None:
-        return None
-    n = len(cleaned)
-    counts = aa_counts(seq)
-    arom = sum(counts[a] for a in AROMATIC_AAS)
-    return arom / n
+    """Aromatic fraction (F + W + Y) / effective_length, via BioPython."""
+    p = _protein_analysis(seq)
+    return None if p is None else p.aromaticity()
 
 
 def aa_fractions(seq: str) -> dict[str, float] | None:
-    """Mole fraction of each of the 20 standard residues. Sums to 1.0 (modulo
-    floating-point) when at least one standard residue is present. Returns
-    None when the sequence is invalid or has no standard residues.
+    """Mole fraction of each of the 20 standard residues. Sums to 1.0 when at
+    least one standard residue is present. Returns None when invalid.
+
+    BioPython's `amino_acids_percent` returns values in PERCENT (sum = 100).
+    Convert to fractions to match the PColumn output convention.
     """
-    if is_invalid_sequence(seq):
+    p = _protein_analysis(seq)
+    if p is None:
         return None
-    counts = aa_counts(seq)
-    n = sum(counts.values())
-    if n == 0:
-        return None
-    return {aa: counts[aa] / n for aa in STANDARD_AAS}
+    pct = p.amino_acids_percent
+    return {aa: pct[aa] / 100.0 for aa in STANDARD_AAS}
 
 
 # ---------------------------------------------------------------------------
@@ -316,24 +295,21 @@ def fv_isoelectric_point(
     vh: str,
     vl: str,
     pka_set: PKaSet,
-    tolerance: float = 0.001,
 ) -> float | None:
-    """Fv pI = pH where charge(VH, pH) + charge(VL, pH) = 0. Bisection over
-    [0, 14] using the per-chain-sum charge function (NOT a concatenated
-    string, per spec). Returns None if there is no zero crossing or either
-    chain is invalid.
+    """Fv pI = pH where charge(VH, pH) + charge(VL, pH) = 0.
+
+    Spec: bisect the per-chain charge SUM, not the pI of a concatenated VH+VL
+    string — concatenation would drop one terminus pair and add a fake peptide
+    bond. Bisection runs locally with BioPython's per-chain charge functions.
     """
     vh_clean = _prepare(vh)
     vl_clean = _prepare(vl)
     if vh_clean is None or vl_clean is None:
         return None
 
-    def f(ph: float) -> float:
-        a = charge_at_ph(vh_clean, ph, pka_set, include_cys=False) or 0.0
-        b = charge_at_ph(vl_clean, ph, pka_set, include_cys=False) or 0.0
-        return a + b
-
-    return _bisect_zero(f, 0.0, 14.0, tolerance)
+    ip_vh = _ipc2_isoelectric_point(vh_clean, pka_set, include_cys=False)
+    ip_vl = _ipc2_isoelectric_point(vl_clean, pka_set, include_cys=False)
+    return _bisect_charge_zero(lambda ph: ip_vh.charge_at_pH(ph) + ip_vl.charge_at_pH(ph))
 
 
 def fv_extinction_coefficients(vh: str, vl: str) -> tuple[float | None, float | None]:

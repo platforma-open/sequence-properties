@@ -7,8 +7,15 @@ xsv := import("@platforma-sdk/workflow-tengo:pframes.xsv")
 pframes := import("@platforma-sdk/workflow-tengo:pframes")
 pSpec := import("@platforma-sdk/workflow-tengo:pframes.spec")
 maps := import("@platforma-sdk/workflow-tengo:maps")
+smart := import("@platforma-sdk/workflow-tengo:smart")
+canonical := import("@platforma-sdk/workflow-tengo:canonical")
+constants := import("@platforma-sdk/workflow-tengo:constants")
 
-self.defineOutputs("propertiesPf", "exportPframe")
+self.defineOutputs("propertiesPf", "exportPframe", "info")
+
+// R11c — VHH/single-domain antibody detection. Spec condition: receptor IG,
+// CDR3 present only on chain A, median CDR-H3 length ≥ 16 aa.
+VHH_MESSAGE := "Possible VHH/single-domain antibody input detected (heavy chain only; CDR-H3 length distribution consistent with VHH). IgG-calibrated CDR-H3 length thresholds (>15 aa elevated risk, >20 aa high risk) do not apply to VHH — disregard these thresholds for nanobody libraries."
 
 // Receptor + chain → human label fragments (CDR3 / full-chain).
 // Spec R13a: PColumn name and chain domain are unchanged; only the label varies.
@@ -49,8 +56,31 @@ self.body(func(args) {
 	mode := params.mode
 	receptor := params.receptor
 	chains := params.chains
+	chainsWithCdr3 := params.chainsWithCdr3
 	fullChains := params.fullChains
 	hasFv := params.hasFv
+	coverageTier := params.coverageTier
+	infoMessages := params.infoMessages
+
+	stats := args.stats.getDataAsJson()
+	medians := stats.medianCdr3Length
+
+	// R11c — single-domain antibodies (nanobodies / VHH) miss the IgG-calibrated
+	// CDR-H3 length risk thresholds. Surface an info message when the dataset
+	// looks like VHH (heavy chain only, long median CDR-H3).
+	if receptor == "IG" && len(chainsWithCdr3) == 1 && chainsWithCdr3[0] == "A" {
+		medA := medians["A"]
+		if medA != undefined && medA >= 16 {
+			infoMessages += [VHH_MESSAGE]
+		}
+	}
+
+	infoBlob := smart.createValueResource(constants.RTYPE_JSON, canonical.encode({
+		mode: mode,
+		receptor: receptor,
+		coverageTier: coverageTier,
+		messages: infoMessages
+	}))
 
 	keyAxisSpec := datasetSpec.axesSpec[keyAxisIdx]
 
@@ -110,6 +140,7 @@ self.body(func(args) {
 			"Extinction Coeff., Reduced (M⁻¹cm⁻¹)", dom, {
 				"pl7.app/format": ".0f",
 				"pl7.app/min": "0",
+				"pl7.app/description": "Extinction coefficient at 280 nm, disulfide bonds reduced (Cys contribution omitted). A value of 0 means no Tyr or Trp — A280-based quantification is not possible.",
 				"pl7.app/table/visibility": "optional",
 				"pl7.app/table/orderPriority": "69500"
 			})]
@@ -126,6 +157,7 @@ self.body(func(args) {
 			"Aliphatic Index", dom, {
 				"pl7.app/format": ".1f",
 				"pl7.app/min": "0",
+				"pl7.app/description": "Measures fraction of nonpolar aliphatic residues (Ala, Val, Ile, Leu). For short linear peptides, thermostability interpretation does not apply — the Ikai index was derived for globular mesophilic enzymes, and thermostability is not a meaningful concept for unstructured peptides. Useful as a composition indicator and a proxy for hydrophobic character alongside GRAVY — both metrics increase with Ala/Val/Ile/Leu content, but neither has a universal preferred direction for therapeutic peptides.",
 				"pl7.app/table/visibility": "optional",
 				"pl7.app/table/orderPriority": "69300"
 			})]
@@ -142,7 +174,16 @@ self.body(func(args) {
 
 	} else {
 		// Antibody/TCR mode — CDR3 columns per chain, full-chain when present, Fv when paired.
-		// CDR-H3 / CDR-L3 (and TCR equivalents).
+		// CDR-H3 (chain A) and CDR-L3 (chain B) carry different descriptions per
+		// pcolumn-spec.md — different developability signals.
+		cdr3ChargeDesc := {
+			A: "Strongly positive CDR3 charge correlates with polyreactivity via electrostatic interactions. No universal preferred direction in Lead Selection. IPC 2.0 peptide pKa set.",
+			B: "Strongly positive CDR-L3 charge contributes to paratope polyreactivity. Strongly negative charge is primarily a PK concern. No universal preferred direction. IPC 2.0 peptide pKa set."
+		}
+		cdr3GravyDesc := {
+			A: "Lower hydrophobicity preferred for developability. CDR3 GRAVY > 0 is an informal aggregation/polyreactivity heuristic.",
+			B: "Same aggregation and polyreactivity signal as CDR-H3 hydrophobicity; lower independent predictive weight. The TAP score uses combined 6-CDR GRAVY — CDR-L3 alone has limited independent validation."
+		}
 		cdr3OrderA := 68000
 		cdr3OrderB := 67700
 		for chain in chains {
@@ -155,7 +196,7 @@ self.body(func(args) {
 				frag.cdr3 + " Net Charge (pH 7)", cdr3Dom, {
 					"pl7.app/format": ".2f",
 					"pl7.app/isScore": "true",
-					"pl7.app/description": "Strongly positive CDR3 charge correlates with polyreactivity via electrostatic interactions. No universal preferred direction in Lead Selection. IPC 2.0 peptide pKa set.",
+					"pl7.app/description": cdr3ChargeDesc[chain],
 					"pl7.app/table/visibility": "default",
 					"pl7.app/table/orderPriority": string(chargeOrder)
 				})]
@@ -164,7 +205,7 @@ self.body(func(args) {
 					"pl7.app/format": ".3f",
 					"pl7.app/isScore": "true",
 					"pl7.app/score/rankingOrder": "increasing",
-					"pl7.app/description": "Lower hydrophobicity preferred for developability. CDR3 GRAVY > 0 is an informal aggregation/polyreactivity heuristic.",
+					"pl7.app/description": cdr3GravyDesc[chain],
 					"pl7.app/table/visibility": "default",
 					"pl7.app/table/orderPriority": string(gravyOrder)
 				})]
@@ -283,6 +324,7 @@ self.body(func(args) {
 				"Fv Extinction Coeff., Reduced (M⁻¹cm⁻¹)", fvDom, {
 					"pl7.app/format": ".0f",
 					"pl7.app/min": "0",
+					"pl7.app/description": "Variable region (VH+VL) only, disulfide bonds reduced (Cys contribution omitted). A value of 0 means no Tyr or Trp — A280-based quantification is not possible.",
 					"pl7.app/table/visibility": "optional",
 					"pl7.app/table/orderPriority": "64800"
 				})]
@@ -401,6 +443,7 @@ self.body(func(args) {
 
 	return {
 		propertiesPf: pframes.exportFrame(resultPframe),
-		exportPframe: exportPframe
+		exportPframe: exportPframe,
+		info: infoBlob
 	}
 })
