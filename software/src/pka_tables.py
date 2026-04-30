@@ -31,13 +31,6 @@ class PKaSet:
     c_terminus: float  # pKa of the free α-carboxyl terminus
 
 
-# Acidic residues — deprotonate to negative charge as pH rises.
-ACIDIC_AAS = frozenset("DECY")
-
-# Basic residues — protonate to positive charge as pH falls.
-BASIC_AAS = frozenset("HKR")
-
-
 # IPC 2.0 peptide pKa set.
 IPC2_PEPTIDE = PKaSet(
     name="IPC2_peptide",

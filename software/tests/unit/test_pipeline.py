@@ -125,40 +125,10 @@ class TestAntibodyTcrCdr3Only:
 class TestAntibodyTcrFullCoverage:
     """Both VH and VL fully covered + IG receptor → Fv columns emitted."""
 
-    @pytest.fixture
-    def reads(self) -> pl.DataFrame:
-        # Synthetic 7-region clones for chains A and B. All 7 regions present
-        # for both chains so reconstruction succeeds.
-        regions = {
-            "A_FR1": ["EVQLVES", "EVQLVES"],
-            "A_CDR1": ["GFTFSSY", "GFTFSSY"],
-            "A_FR2": ["AMSWVRQ", "AMSWVRQ"],
-            "A_CDR2": ["ISGSGGS", "ISGSGGS"],
-            "A_FR3": ["TYYAESVKGRFTI", "TYYAESVKGRFTI"],
-            "A_CDR3": ["CARDYW", "CARGFW"],
-            "A_FR4": ["WGQGTLV", "WGQGTLV"],
-            "B_FR1": ["DIQMTQS", "DIQMTQS"],
-            "B_CDR1": ["QSISSY", "QSISSY"],
-            "B_FR2": ["LNWYQQK", "LNWYQQK"],
-            "B_CDR2": ["AASSLQS", "AASSLQS"],
-            "B_FR3": ["GVPSRFSGSG", "GVPSRFSGSG"],
-            "B_CDR3": ["CQQYNS", "CQHFSS"],
-            "B_FR4": ["FGQGTKV", "FGQGTKV"],
-        }
-        return pl.DataFrame({"entity_key": ["c1", "c2"], **regions})
-
-    @pytest.fixture
-    def plan(self) -> dict:
-        return {
-            "mode": "antibody_tcr_legacy_bulk",
-            "receptor": "IG",
-            "chains": ["A", "B"],
-            "fullChains": ["A", "B"],
-            "hasFv": True,
-        }
-
-    def test_emits_full_chain_and_fv_columns(self, reads: pl.DataFrame, plan: dict):
-        out = run(reads, plan)
+    def test_emits_full_chain_and_fv_columns(
+        self, antibody_full_two_clones: pl.DataFrame, antibody_full_plan: dict
+    ):
+        out = run(antibody_full_two_clones, antibody_full_plan)
         cols = set(out["properties"].columns)
         for ch in "AB":
             for p in FULL_CHAIN_PROPS:
@@ -166,8 +136,10 @@ class TestAntibodyTcrFullCoverage:
         for p in FV_PROPS:
             assert f"{p}_Fv" in cols
 
-    def test_full_chain_pi_in_range(self, reads: pl.DataFrame, plan: dict):
-        out = run(reads, plan)
+    def test_full_chain_pi_in_range(
+        self, antibody_full_two_clones: pl.DataFrame, antibody_full_plan: dict
+    ):
+        out = run(antibody_full_two_clones, antibody_full_plan)
         row = out["properties"].filter(pl.col("entity_key") == "c1").row(0, named=True)
         # Variable-region pI should sit in [0, 14] when defined.
         assert 0.0 < row["pi_A_VDJRegion"] < 14.0
@@ -424,34 +396,13 @@ class TestPipelineLogging:
         assert any("cdr3" in r.message.lower() for r in caplog.records), caplog.text
 
     def test_antibody_path_logs_full_chain_and_fv_milestones(
-        self, caplog: pytest.LogCaptureFixture
+        self,
+        caplog: pytest.LogCaptureFixture,
+        antibody_full_one_clone: pl.DataFrame,
+        antibody_full_plan: dict,
     ):
-        regions = {
-            "A_FR1": ["EVQLVES"],
-            "A_CDR1": ["GFTFSSY"],
-            "A_FR2": ["AMSWVRQ"],
-            "A_CDR2": ["ISGSGGS"],
-            "A_FR3": ["TYYAESVKGRFTI"],
-            "A_CDR3": ["CARDYW"],
-            "A_FR4": ["WGQGTLV"],
-            "B_FR1": ["DIQMTQS"],
-            "B_CDR1": ["QSISSY"],
-            "B_FR2": ["LNWYQQK"],
-            "B_CDR2": ["AASSLQS"],
-            "B_FR3": ["GVPSRFSGSG"],
-            "B_CDR3": ["CQQYNS"],
-            "B_FR4": ["FGQGTKV"],
-        }
-        reads = pl.DataFrame({"entity_key": ["c1"], **regions})
-        plan = {
-            "mode": "antibody_tcr_legacy_bulk",
-            "receptor": "IG",
-            "chains": ["A", "B"],
-            "fullChains": ["A", "B"],
-            "hasFv": True,
-        }
         with caplog.at_level(logging.INFO, logger="pipeline"):
-            run(reads, plan)
+            run(antibody_full_one_clone, antibody_full_plan)
         text = caplog.text.lower()
         assert "full" in text or "vdj" in text or "vh" in text, caplog.text
         assert "fv" in text, caplog.text
