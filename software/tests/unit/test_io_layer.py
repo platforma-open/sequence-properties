@@ -18,15 +18,15 @@ from io_layer import read_input_tsv, read_plan, write_output_tsv
 # or "NaN" — the Tengo workflow's xsv.importFile treats "" as missing.
 # Polars reads empty as None and writes None as "" (with null_value="").
 def test_round_trip_preserves_empty_cells(tmp_path: Path):
-    raw = "entity_key\tpeptide_seq\nA\tACDE\nB\t\n"
+    raw = "entity_key\tsequence\nA\tACDE\nB\t\n"
     src = tmp_path / "in.tsv"
     src.write_text(raw)
     df = read_input_tsv(src)
-    assert df["peptide_seq"].to_list() == ["ACDE", None]
+    assert df["sequence"].to_list() == ["ACDE", None]
     out = tmp_path / "out.tsv"
     write_output_tsv(df, out)
     written = out.read_text()
-    # Output row for entity B has its peptide_seq cell empty.
+    # Output row for entity B has its sequence cell empty.
     assert "B\t\n" in written or written.endswith("B\t\n")
 
 

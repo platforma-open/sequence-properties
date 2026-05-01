@@ -115,7 +115,7 @@ class TestPipelineQuantizationApplied:
         reads = pl.DataFrame(
             {
                 "entity_key": ["p1"],
-                "peptide_seq": ["ACDEFGHIKL"],  # 10 aa — every property defined
+                "sequence": ["ACDEFGHIKL"],  # 10 aa — every property defined
             }
         )
         out = run(reads, {"mode": "peptide"})

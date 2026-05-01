@@ -139,7 +139,7 @@ def _compute_peptide_row(seq: str) -> dict[str, float | None]:
 def run_peptide(reads: pl.DataFrame) -> dict[str, pl.DataFrame]:
     """Compute peptide-mode outputs."""
     keys = reads["entity_key"].to_list()
-    seqs = reads["peptide_seq"].to_list()
+    seqs = reads["sequence"].to_list()
 
     log.info("Computing peptide scalar properties (%d sequences)", len(seqs))
     rows = [{"entity_key": k, **_compute_peptide_row(s)} for k, s in zip(keys, seqs)]

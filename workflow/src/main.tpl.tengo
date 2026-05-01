@@ -103,10 +103,21 @@ wf.body(func(args) {
 	if len(axes) == 0 {
 		ll.panic("input anchor has no axes")
 	}
-	keyAxisIdx := len(axes) - 1
-	keyAxisSpec := axes[keyAxisIdx]
 
-	mode := detectMode(keyAxisSpec)
+	// R1a: first axis matching a recognized name + domain. Equivalent to
+	// `axes[len-1]` on every observed `[sampleId, key]` input.
+	keyAxisIdx := -1
+	keyAxisSpec := undefined
+	mode := ""
+	for i, axisSpec in axes {
+		m := detectMode(axisSpec)
+		if m != "" {
+			keyAxisIdx = i
+			keyAxisSpec = axisSpec
+			mode = m
+			break
+		}
+	}
 	if mode == "" {
 		ll.panic("no recognized sequence key axis found; connect a peptide extraction or MiXCR clonotyping dataset")
 	}
@@ -138,7 +149,7 @@ wf.body(func(args) {
 		if len(peptideCols) == 0 {
 			ll.panic("peptide mode detected but no peptide sequence column found (expected pl7.app/sequence with domain {feature: peptide, alphabet: aminoacid})")
 		}
-		seqTb.add(bundle.getColumn(peptideCols[0].key), { header: "peptide_seq" })
+		seqTb.add(bundle.getColumn(peptideCols[0].key), { header: "sequence" })
 
 	} else {
 		// Legacy MiXCR sequences first; fall back to universal naming for forward

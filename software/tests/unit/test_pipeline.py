@@ -36,7 +36,7 @@ class TestPeptideMode:
         return pl.DataFrame(
             {
                 "entity_key": ["pep1", "pep2", "pep3"],
-                "peptide_seq": ["ACDEFGHIKL", "AAAAAAAAAA", ""],
+                "sequence": ["ACDEFGHIKL", "AAAAAAAAAA", ""],
             }
         )
 
@@ -187,7 +187,7 @@ class TestR11cStats:
 
     # Peptide mode has no chains — stats present, medianCdr3Length empty.
     def test_peptide_mode_emits_empty_medians(self):
-        reads = pl.DataFrame({"entity_key": ["p1"], "peptide_seq": ["ACDEFGHIKL"]})
+        reads = pl.DataFrame({"entity_key": ["p1"], "sequence": ["ACDEFGHIKL"]})
         out = run(reads, {"mode": "peptide"})
         assert out["stats"] == {"medianCdr3Length": {}}
 
@@ -338,7 +338,7 @@ class TestPipelineLogging:
     """run() and its sub-paths emit INFO-level milestones on the pipeline logger."""
 
     def test_run_logs_peptide_mode_dispatch(self, caplog: pytest.LogCaptureFixture):
-        reads = pl.DataFrame({"entity_key": ["p1"], "peptide_seq": ["ACDEFGHIKL"]})
+        reads = pl.DataFrame({"entity_key": ["p1"], "sequence": ["ACDEFGHIKL"]})
         with caplog.at_level(logging.INFO, logger="pipeline"):
             run(reads, {"mode": "peptide"})
         assert any("peptide" in r.message.lower() for r in caplog.records), caplog.text
@@ -346,7 +346,7 @@ class TestPipelineLogging:
     def test_peptide_path_logs_scalar_and_aa_milestones(
         self, caplog: pytest.LogCaptureFixture
     ):
-        reads = pl.DataFrame({"entity_key": ["p1"], "peptide_seq": ["ACDEFGHIKL"]})
+        reads = pl.DataFrame({"entity_key": ["p1"], "sequence": ["ACDEFGHIKL"]})
         with caplog.at_level(logging.INFO, logger="pipeline"):
             run(reads, {"mode": "peptide"})
         text = caplog.text.lower()
