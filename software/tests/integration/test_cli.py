@@ -31,8 +31,8 @@ def test_cli_peptide_mode(tmp_path: Path):
 
     _write_tsv(
         in_tsv,
-        [{"entity_key": "p1", "peptide_seq": "ACDEFGHIKL"}],
-        ["entity_key", "peptide_seq"],
+        [{"entity_key": "p1", "sequence": "ACDEFGHIKL"}],
+        ["entity_key", "sequence"],
     )
     plan_json.write_text(json.dumps({"mode": "peptide"}))
 
@@ -189,7 +189,7 @@ def _run_peptide(tmp_path: Path, suffix: str, rows: list[dict[str, str]]) -> tup
     out_tsv = tmp_path / f"out{suffix}.tsv"
     aa_tsv = tmp_path / f"aa{suffix}.tsv"
     stats_json = tmp_path / f"stats{suffix}.json"
-    _write_tsv(in_tsv, rows, ["entity_key", "peptide_seq"])
+    _write_tsv(in_tsv, rows, ["entity_key", "sequence"])
     plan_json.write_text(json.dumps({"mode": "peptide"}))
     rc = main(
         [
@@ -210,9 +210,9 @@ def _run_peptide(tmp_path: Path, suffix: str, rows: list[dict[str, str]]) -> tup
 # io_layer.write_output_tsv).
 def test_byte_stable_across_two_runs(tmp_path: Path):
     rows = [
-        {"entity_key": "p1", "peptide_seq": "ACDEFGHIKL"},
-        {"entity_key": "p2", "peptide_seq": "MNPQRSTVWY"},
-        {"entity_key": "p3", "peptide_seq": "GFTFSSYAMS"},
+        {"entity_key": "p1", "sequence": "ACDEFGHIKL"},
+        {"entity_key": "p2", "sequence": "MNPQRSTVWY"},
+        {"entity_key": "p3", "sequence": "GFTFSSYAMS"},
     ]
     out_a, aa_a = _run_peptide(tmp_path, "_a", rows)
     out_b, aa_b = _run_peptide(tmp_path, "_b", rows)
@@ -224,9 +224,9 @@ def test_byte_stable_across_two_runs(tmp_path: Path):
 # write-side sort actually normalises ordering rather than passing through.
 def test_byte_stable_under_row_permutation(tmp_path: Path):
     rows = [
-        {"entity_key": "p1", "peptide_seq": "ACDEFGHIKL"},
-        {"entity_key": "p2", "peptide_seq": "MNPQRSTVWY"},
-        {"entity_key": "p3", "peptide_seq": "GFTFSSYAMS"},
+        {"entity_key": "p1", "sequence": "ACDEFGHIKL"},
+        {"entity_key": "p2", "sequence": "MNPQRSTVWY"},
+        {"entity_key": "p3", "sequence": "GFTFSSYAMS"},
     ]
     out_sorted, aa_sorted = _run_peptide(tmp_path, "_sorted", rows)
     out_shuffled, aa_shuffled = _run_peptide(tmp_path, "_shuffled", list(reversed(rows)))
@@ -237,8 +237,8 @@ def test_byte_stable_under_row_permutation(tmp_path: Path):
 # Negative test: different content → different bytes. Proves we're actually
 # distinguishing inputs and not just always cache-hitting on a constant.
 def test_byte_changes_when_input_changes(tmp_path: Path):
-    rows_a = [{"entity_key": "p1", "peptide_seq": "ACDEFGHIKL"}]
-    rows_b = [{"entity_key": "p1", "peptide_seq": "ACDEFGHIKM"}]  # last residue differs
+    rows_a = [{"entity_key": "p1", "sequence": "ACDEFGHIKL"}]
+    rows_b = [{"entity_key": "p1", "sequence": "ACDEFGHIKM"}]  # last residue differs
     out_a, _ = _run_peptide(tmp_path, "_a", rows_a)
     out_b, _ = _run_peptide(tmp_path, "_b", rows_b)
     assert _sha256(out_a) != _sha256(out_b)
@@ -258,8 +258,8 @@ def test_cli_writes_progress_to_stderr(tmp_path: Path, capsys):
     stats_json = tmp_path / "stats.json"
     _write_tsv(
         in_tsv,
-        [{"entity_key": "p1", "peptide_seq": "ACDEFGHIKL"}],
-        ["entity_key", "peptide_seq"],
+        [{"entity_key": "p1", "sequence": "ACDEFGHIKL"}],
+        ["entity_key", "sequence"],
     )
     plan_json.write_text(json.dumps({"mode": "peptide"}))
 

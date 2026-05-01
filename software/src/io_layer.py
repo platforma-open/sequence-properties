@@ -1,7 +1,7 @@
 """TSV in / TSV out. Defined by the Tengo workflow's contract.
 
 Input TSV (entity per row):
-  Peptide mode columns: `entity_key`, `peptide_seq`
+  Peptide mode columns: `entity_key`, `sequence`
   Antibody/TCR mode columns: `entity_key`, `<chain>_<feature>` for each
     (chain ∈ {A, B}) × (feature ∈ {FR1, CDR1, FR2, CDR2, FR3, CDR3, FR4})
     that the upstream block actually emitted. Missing region for a clone is

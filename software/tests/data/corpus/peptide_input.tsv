@@ -1,4 +1,4 @@
-entity_key	peptide_seq
+entity_key	sequence
 pep_all20	ACDEFGHIKLMNPQRSTVWY
 pep_polya_10	AAAAAAAAAA
 pep_short	ACDE
