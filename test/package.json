@@ -1,5 +1,5 @@
 {
-  "name": "@platforma-open/MiLaboratories.sequence-properties.test",
+  "name": "@platforma-open/milaboratories.sequence-properties.test",
   "version": "1.1.0",
   "private": true,
   "description": "Block tests",
@@ -12,8 +12,8 @@
     "type-check": "ts-builder type-check --target block-test"
   },
   "dependencies": {
-    "this-block": "workspace:@platforma-open/MiLaboratories.sequence-properties@*",
-    "@platforma-open/MiLaboratories.sequence-properties.model": "workspace:*",
+    "this-block": "workspace:@platforma-open/milaboratories.sequence-properties@*",
+    "@platforma-open/milaboratories.sequence-properties.model": "workspace:*",
     "@platforma-open/milaboratories.samples-and-data": "^1.17.1",
     "@platforma-open/milaboratories.samples-and-data.model": "^2.8.0",
     "@platforma-open/milaboratories.xsv-import.model": "^1.0.4",

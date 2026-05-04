@@ -291,7 +291,7 @@ wf.body(func(args) {
 	// plus aa_fraction.tsv in peptide mode (empty body in antibody/TCR mode), plus
 	// stats.json (dataset-level scalars consumed by the info layer — e.g. R11c
 	// median CDR-H3 length per chain).
-	soft := assets.importSoftware("@platforma-open/MiLaboratories.sequence-properties.software:compute-properties")
+	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
 	pyRun := exec.builder().
 		software(soft).
 		mem("4GiB").

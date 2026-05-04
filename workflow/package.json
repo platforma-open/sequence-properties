@@ -1,5 +1,5 @@
 {
-  "name": "@platforma-open/MiLaboratories.sequence-properties.workflow",
+  "name": "@platforma-open/milaboratories.sequence-properties.workflow",
   "version": "1.1.0",
   "description": "Block Workflow",
   "type": "module",
@@ -9,7 +9,7 @@
     "format": "/usr/bin/env emacs --script ./format.el"
   },
   "dependencies": {
-    "@platforma-open/MiLaboratories.sequence-properties.software": "workspace:*",
+    "@platforma-open/milaboratories.sequence-properties.software": "workspace:*",
     "@platforma-sdk/workflow-tengo": "catalog:"
   },
   "devDependencies": {

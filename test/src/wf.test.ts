@@ -22,10 +22,10 @@
  * ready.
  *
  * Running: `cd blocks/sequence-properties && pnpm --filter
- * @platforma-open/MiLaboratories.sequence-properties.test test`
+ * @platforma-open/milaboratories.sequence-properties.test test`
  */
 
-import type { platforma } from '@platforma-open/MiLaboratories.sequence-properties.model';
+import type { platforma } from '@platforma-open/milaboratories.sequence-properties.model';
 import type { InferBlockState } from '@platforma-sdk/model';
 import { wrapOutputs } from '@platforma-sdk/model';
 import { awaitStableState, blockTest } from '@platforma-sdk/test';
