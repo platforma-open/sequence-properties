@@ -58,6 +58,44 @@ contains := func(arr, x) {
 	return false
 }
 
+// Spec deviation SD-008 — see docs/spec-deviations.md.
+// Bulk MiXCR axes carry `pl7.app/vdj/chain` without the spec-required
+// `pl7.app/vdj/receptor`. The chain enum maps unambiguously to a receptor —
+// derive it when receptor is absent. Returns "" for unrecognised input;
+// caller falls through to the IG default + R13b warning, which still fires
+// for genuinely unknown datasets.
+CHAIN_TO_RECEPTOR := {
+	IGHeavy: "IG",
+	IGLight: "IG",
+	IGKappa: "IG",
+	IGLambda: "IG",
+	TCRAlpha: "TCRAB",
+	TCRBeta: "TCRAB",
+	TCRGamma: "TCRGD",
+	TCRDelta: "TCRGD"
+}
+
+chainToReceptor := func(chain) {
+	if chain == undefined { return "" }
+	r := CHAIN_TO_RECEPTOR[chain]
+	if r == undefined { return "" }
+	return r
+}
+
+// Resolve receptor from a (receptor, chain) domain pair. Explicit receptor
+// wins; chain-derived receptor is the fallback. Returns { value, seen };
+// `seen` false when neither key resolves.
+resolveReceptor := func(receptorVal, chainVal) {
+	if receptorVal == "IG" || receptorVal == "TCRAB" || receptorVal == "TCRGD" {
+		return { value: receptorVal, seen: true }
+	}
+	derived := chainToReceptor(chainVal)
+	if derived != "" {
+		return { value: derived, seen: true }
+	}
+	return { value: "", seen: false }
+}
+
 wf.prepare(func(args) {
 	bb := wf.createPBundleBuilder()
 	bb.ignoreMissingDomains()
@@ -132,10 +170,17 @@ wf.body(func(args) {
 	// anchor's secondary axis), not on per-region sequence column domains. Read
 	// from the axis first; the per-column check inside the loop stays as a
 	// fallback for non-MiXCR producers.
+	//
+	// Spec deviation SD-008 — bulk MiXCR axes lack `pl7.app/vdj/receptor` but
+	// carry `pl7.app/vdj/chain`; derive receptor from chain when receptor is
+	// absent. See docs/spec-deviations.md.
 	if keyAxisSpec.domain != undefined {
-		axisR := keyAxisSpec.domain["pl7.app/vdj/receptor"]
-		if axisR == "IG" || axisR == "TCRAB" || axisR == "TCRGD" {
-			receptor = axisR
+		r := resolveReceptor(
+			keyAxisSpec.domain["pl7.app/vdj/receptor"],
+			keyAxisSpec.domain["pl7.app/vdj/chain"]
+		)
+		if r.seen {
+			receptor = r.value
 			receptorSeen = true
 		}
 	}
@@ -192,9 +237,10 @@ wf.body(func(args) {
 			}
 
 			// Same receptor value is expected on every input column; last seen wins.
-			r := d["pl7.app/vdj/receptor"]
-			if r == "IG" || r == "TCRAB" || r == "TCRGD" {
-				receptor = r
+			// SD-008: derive from chain when explicit receptor key is absent.
+			rec := resolveReceptor(d["pl7.app/vdj/receptor"], d["pl7.app/vdj/chain"])
+			if rec.seen {
+				receptor = rec.value
 				receptorSeen = true
 			}
 
