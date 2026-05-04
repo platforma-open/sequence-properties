@@ -40,12 +40,7 @@ const tableSettings = usePlDataTableSettingsV2({
       label="Input dataset"
     >
       <template #tooltip>
-        <div>
-          <strong>Sequence dataset</strong><br />
-          Peptide extraction or MiXCR clonotyping output. The block detects modality (peptide vs
-          antibody/TCR) from the dataset's axes and computes physico-chemical properties
-          accordingly.
-        </div>
+        Peptide extraction or MiXCR clonotyping output. Modality is auto-detected.
       </template>
     </PlDropdownRef>
 
