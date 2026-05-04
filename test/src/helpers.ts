@@ -45,8 +45,14 @@ export async function addSequenceProperties(ctx: TestCtx): Promise<string> {
 }
 
 /**
- * Add samples-and-data + mixcr-clonotyping-2 wired to the bundled fastq
- * fixtures. Single-cell IG preset by default — used by the canary test.
+ * Add samples-and-data + mixcr-clonotyping-2 wired to fastq fixtures.
+ * Single-cell IG preset by default — for the MiXCR canary test.
+ *
+ * Fastq fixtures are NOT bundled — drop appropriate small paired-end
+ * fastq.gz files into `test/assets/` (e.g. a single-cell IG slice from
+ * SRA) and pass their paths via `opts.r1Path` / `opts.r2Path`. Sibling
+ * blocks like mixcr-clonotyping vendor SRR-prefixed fixtures in their
+ * own test/assets — those can be reused here when the canary lands.
  *
  * Returns block ids; caller drives runs + assertions.
  */
@@ -55,7 +61,9 @@ export async function setupMixcrAnchor(
   opts: {
     preset?: string;
     chains?: string[];
-  } = {},
+    r1Path: string;
+    r2Path: string;
+  },
 ): Promise<{ sndBlockId: string; clonotypingBlockId: string; seqPropsBlockId: string }> {
   const preset = opts.preset ?? '10x-sc-xcr-vdj-rhapsody';
   const chains = opts.chains ?? ['IGHeavy', 'IGLight'];
@@ -67,8 +75,8 @@ export async function setupMixcrAnchor(
 
   const sample1Id = uniquePlId();
   const dataset1Id = uniquePlId();
-  const r1Handle = await helpers.getLocalFileHandle('./assets/SRR11233623-sc_R1.fastq.gz');
-  const r2Handle = await helpers.getLocalFileHandle('./assets/SRR11233623-sc_R2.fastq.gz');
+  const r1Handle = await helpers.getLocalFileHandle(opts.r1Path);
+  const r2Handle = await helpers.getLocalFileHandle(opts.r2Path);
 
   await rawPrj.setBlockArgs(sndBlockId, {
     metadata: [],
