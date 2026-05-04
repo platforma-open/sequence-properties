@@ -17,10 +17,14 @@ catalog:
   "@platforma-sdk/tengo-builder": 2.5.17
   "@platforma-sdk/package-builder": 3.12.0
   "@platforma-sdk/blocks-deps-updater": 2.2.0
+  "@platforma-sdk/eslint-config": 1.2.0
 
   "@platforma-open/milaboratories.runenv-python-3": 1.8.0
 
   "turbo": 2.8.11
+  "typescript": ~5.6.3
+  "vitest": ^4.0.18
+  "eslint": ^9.38.0
 
   "shx": 0.4.0
   "@changesets/cli": 2.29.8
