@@ -1,5 +1,10 @@
-import type { InferOutputsType } from "@platforma-sdk/model";
-import { BlockModelV3, createPlDataTableV3 } from "@platforma-sdk/model";
+import type { ColumnSource, InferOutputsType } from "@platforma-sdk/model";
+import {
+  Annotation,
+  ArrayColumnProvider,
+  BlockModelV3,
+  createPlDataTableV3,
+} from "@platforma-sdk/model";
 import { blockDataModel } from "./dataModel";
 import type { BlockArgs, WorkflowInfo } from "./types";
 
@@ -48,13 +53,45 @@ export const platforma = BlockModelV3.create(blockDataModel)
   .output("processingLog", (ctx) => ctx.outputs?.resolve("processingLog")?.getLogHandle())
   .outputWithStatus("propertiesTable", (ctx) => {
     if (ctx.data.inputAnchor === undefined) return undefined;
-    const propertiesPf = ctx.outputs?.resolve("propertiesPf");
-    if (propertiesPf === undefined) return undefined;
+    const ownCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
+    if (ownCols === undefined) return undefined;
+
+    // Build sources explicitly: upstream cols from the result pool minus
+    // anything traced back to this block, plus this block's own cols from
+    // `propertiesPf`. The workflow also publishes `exports.properties` —
+    // a blockId-stamped score-only variant for downstream consumers like
+    // Lead Selection — into the result pool. Filtering by trace excludes
+    // it here so score cols don't duplicate the propertiesPf variant.
+    const upstreamCols = ctx.resultPool.selectColumns(
+      (spec) =>
+        !spec.annotations?.[Annotation.Trace]?.includes("milaboratories.sequence-properties"),
+    );
+    const sources: ColumnSource[] = [
+      new ArrayColumnProvider(upstreamCols),
+      new ArrayColumnProvider(ownCols),
+    ];
+
     return createPlDataTableV3(ctx, {
       tableState: ctx.data.tableState,
       columns: {
+        sources,
         anchors: { main: ctx.data.inputAnchor },
-        selector: { mode: "enrichment", maxHops: 0 },
+        selector: { mode: "enrichment" },
+      },
+      // UX policy (not in spec): default-show only this block's columns;
+      // demote upstream cols to optional to keep the table uncluttered.
+      // This block's cols fall through unmatched and keep the visibility
+      // stamped at workflow-time (`pl7.app/table/visibility`).
+      displayOptions: {
+        visibility: [
+          {
+            match: (spec) =>
+              !spec.annotations?.[Annotation.Trace]?.includes(
+                "milaboratories.sequence-properties",
+              ) && spec.annotations?.["pl7.app/isLinkerColumn"] !== "true",
+            visibility: "optional",
+          },
+        ],
       },
     });
   })
