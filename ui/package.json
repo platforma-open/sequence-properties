@@ -1,6 +1,6 @@
 {
   "name": "@platforma-open/MiLaboratories.sequence-properties.ui",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "fmt": "ts-builder format",

@@ -1,4 +1,4 @@
-## 1.0.0
+# @platforma-open/MiLaboratories.sequence-properties.model
 
 ## 1.1.0
 
@@ -27,12 +27,3 @@
 
   Block title is the static "Sequence Properties"; the selected input dataset
   appears as the subtitle.
-
-### Patch Changes
-
-- Updated dependencies [1059d80]
-  - @platforma-open/MiLaboratories.sequence-properties.model@1.1.0
-  - @platforma-open/MiLaboratories.sequence-properties.ui@1.1.0
-  - @platforma-open/MiLaboratories.sequence-properties.workflow@1.1.0
-
-Initial scaffold of `sequence-properties` block: model (BlockModelV3), Tengo workflow with modality detection and region collection, UI (PlBlockPage + PlAgDataTableV2), Python stub for property computation.
