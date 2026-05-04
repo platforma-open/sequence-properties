@@ -58,7 +58,8 @@ export const platforma = BlockModelV3.create(blockDataModel)
       },
     });
   })
-  .title((ctx) => ctx.data.defaultBlockLabel || "Sequence Properties")
+  .title(() => "Sequence Properties")
+  .subtitle((ctx) => ctx.data.defaultBlockLabel ?? "")
   .sections(() => [{ type: "link" as const, href: "/" as const, label: "Main" }])
   .done();
 

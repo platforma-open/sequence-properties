@@ -147,7 +147,7 @@ wf.body(func(args) {
 	if mode == "peptide" {
 		peptideCols := bundle.getColumns("peptideSequences")
 		if len(peptideCols) == 0 {
-			ll.panic("peptide mode detected but no peptide sequence column found (expected pl7.app/sequence with domain {feature: peptide, alphabet: aminoacid})")
+			ll.panic("peptide mode detected but no peptide amino-acid sequence column was found in the input dataset")
 		}
 		seqTb.add(bundle.getColumn(peptideCols[0].key), { header: "sequence" })
 
@@ -263,7 +263,7 @@ wf.body(func(args) {
 		}
 		// R13b: warn when no recognised receptor was seen — defaults to IG.
 		if !receptorSeen && anyChain {
-			infoMessages += ["Receptor type not found on input columns (pl7.app/vdj/receptor); defaulting to antibody (IG) labels. Use a MiXCR preset that emits the receptor annotation if this is a TCR dataset."]
+			infoMessages += ["Receptor type not detected on the input dataset; defaulting to antibody labels. Use a MiXCR preset that emits the receptor annotation if this is a TCR dataset."]
 		}
 	}
 
