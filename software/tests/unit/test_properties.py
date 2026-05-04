@@ -237,10 +237,10 @@ class TestIsoelectricPoint:
     # test to a direct demonstration of the no-crossing branch.
     def test_pi_no_zero_crossing_returns_none(self):
         from pka_tables import PKaSet
+
         all_base = PKaSet(
             name="synthetic_all_base",
-            side_chain={"K": 100.0, "R": 100.0, "H": 100.0,
-                        "C": 100.0, "D": 100.0, "E": 100.0, "Y": 100.0},
+            side_chain={"K": 100.0, "R": 100.0, "H": 100.0, "C": 100.0, "D": 100.0, "E": 100.0, "Y": 100.0},
             n_terminus=100.0,
             c_terminus=100.0,
         )

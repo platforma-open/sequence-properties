@@ -43,7 +43,6 @@ from properties import (
     isoelectric_point,
 )
 
-
 # ---------------------------------------------------------------------------
 # Reference sequences
 # ---------------------------------------------------------------------------
@@ -71,8 +70,7 @@ VH_PEMBROLIZUMAB = (
 
 VL_SYNTHETIC = "DIQMTQSQSISSYLNWYQQKAASSLQSGVPSRFSGSGCQQYNSFGQGTKV"
 VL_TRASTUZUMAB = (
-    "DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRS"
-    "GTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIK"
+    "DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIK"
 )
 
 
@@ -119,10 +117,10 @@ def _ref_charge_hh(seq: str, ph: float, pka_set: PKaSet, include_cys: bool) -> f
 # the pKa transcription and HH formula independently of the spec's Cys
 # policy. The webserver's reported precision is 2 decimal places.
 VH_WEBSERVER_PI = [
-    ("VH_synthetic",     VH_SYNTHETIC,     6.00),
-    ("VH_trastuzumab",   VH_TRASTUZUMAB,   6.95),
-    ("VH_cetuximab",     VH_CETUXIMAB,     7.77),
-    ("VH_adalimumab",    VH_ADALIMUMAB,    5.22),
+    ("VH_synthetic", VH_SYNTHETIC, 6.00),
+    ("VH_trastuzumab", VH_TRASTUZUMAB, 6.95),
+    ("VH_cetuximab", VH_CETUXIMAB, 7.77),
+    ("VH_adalimumab", VH_ADALIMUMAB, 5.22),
     ("VH_pembrolizumab", VH_PEMBROLIZUMAB, 7.73),
 ]
 
@@ -146,7 +144,7 @@ class TestVHPIWebserverCrosscheck:
 # ---------------------------------------------------------------------------
 
 VL_WEBSERVER_PI = [
-    ("VL_synthetic",   VL_SYNTHETIC,   8.38),
+    ("VL_synthetic", VL_SYNTHETIC, 8.38),
     ("VL_trastuzumab", VL_TRASTUZUMAB, 7.77),
 ]
 
@@ -175,20 +173,18 @@ class TestVHVLPISpecConvention:
     @pytest.mark.parametrize(
         "name,seq,expected",
         [
-            ("VH_synthetic",     VH_SYNTHETIC,     6.006653),
-            ("VH_trastuzumab",   VH_TRASTUZUMAB,   7.455017),
-            ("VH_cetuximab",     VH_CETUXIMAB,     8.602600),
-            ("VH_adalimumab",    VH_ADALIMUMAB,    5.218811),
+            ("VH_synthetic", VH_SYNTHETIC, 6.006653),
+            ("VH_trastuzumab", VH_TRASTUZUMAB, 7.455017),
+            ("VH_cetuximab", VH_CETUXIMAB, 8.602600),
+            ("VH_adalimumab", VH_ADALIMUMAB, 5.218811),
             ("VH_pembrolizumab", VH_PEMBROLIZUMAB, 8.427429),
-            ("VL_synthetic",     VL_SYNTHETIC,     9.165710),
-            ("VL_trastuzumab",   VL_TRASTUZUMAB,   8.592346),
+            ("VL_synthetic", VL_SYNTHETIC, 9.165710),
+            ("VL_trastuzumab", VL_TRASTUZUMAB, 8.592346),
         ],
     )
     def test_pi_no_cys(self, name: str, seq: str, expected: float):
         actual = isoelectric_point(seq, IPC2_PROTEIN, include_cys=False)
-        assert actual == pytest.approx(expected, abs=1e-5), (
-            f"{name}: pi(no_Cys)={actual} expected~{expected}"
-        )
+        assert actual == pytest.approx(expected, abs=1e-5), f"{name}: pi(no_Cys)={actual} expected~{expected}"
 
 
 # ---------------------------------------------------------------------------
@@ -198,17 +194,17 @@ class TestVHVLPISpecConvention:
 # Mix of corpus (CARDYW), therapeutic CDR-H3 fragments, and synthetic
 # sequences spanning length range and charge polarity.
 CDRH3_SEQUENCES = [
-    "CARDYW",                    # corpus synthetic
-    "CSRWGGDGFY",                # trastuzumab CDR-H3 fragment
-    "CARALTYYDYEFAY",            # cetuximab CDR-H3
-    "CAKVSYLSTASSLDY",           # adalimumab CDR-H3
-    "CARRDYRFDMGFDY",            # pembrolizumab CDR-H3
-    "CARGSDPHGFDY",              # synthetic, mid-length
-    "CSAQGGYPVT",                # synthetic, neutral
-    "CARWHRLDFY",                # synthetic, His-bearing
-    "CQHRGGTPLD",                # synthetic, basic
-    "CARDDGYY",                  # synthetic, short / acidic
-    "CARGSGGFDPMGTDIWGQGTLVT",   # synthetic, long
+    "CARDYW",  # corpus synthetic
+    "CSRWGGDGFY",  # trastuzumab CDR-H3 fragment
+    "CARALTYYDYEFAY",  # cetuximab CDR-H3
+    "CAKVSYLSTASSLDY",  # adalimumab CDR-H3
+    "CARRDYRFDMGFDY",  # pembrolizumab CDR-H3
+    "CARGSDPHGFDY",  # synthetic, mid-length
+    "CSAQGGYPVT",  # synthetic, neutral
+    "CARWHRLDFY",  # synthetic, His-bearing
+    "CQHRGGTPLD",  # synthetic, basic
+    "CARDDGYY",  # synthetic, short / acidic
+    "CARGSGGFDPMGTDIWGQGTLVT",  # synthetic, long
 ]
 
 
@@ -229,11 +225,11 @@ class TestCDRH3ChargeManualHH:
 # ---------------------------------------------------------------------------
 
 CDRL3_SEQUENCES = [
-    "CQQYNS",       # corpus synthetic
-    "CQQHYTTPPT",   # trastuzumab CDR-L3
-    "CSAQGGYPVT",   # synthetic, neutral
-    "CQQYNSLPYT",   # synthetic, neutral / Tyr-rich
-    "CHQYHRSPT",    # synthetic, two His + Arg
+    "CQQYNS",  # corpus synthetic
+    "CQQHYTTPPT",  # trastuzumab CDR-L3
+    "CSAQGGYPVT",  # synthetic, neutral
+    "CQQYNSLPYT",  # synthetic, neutral / Tyr-rich
+    "CHQYHRSPT",  # synthetic, two His + Arg
 ]
 
 
@@ -255,16 +251,17 @@ class TestCDRL3ChargeManualHH:
 def _manual_fv_charge(vh: str, vl: str, ph: float, pka_set: PKaSet) -> float:
     """Reference Fv net charge = HH(VH) + HH(VL), Cys excluded per
     full-chain rule. Independent of `fv_charge` and BioPython."""
-    return _ref_charge_hh(vh, ph, pka_set, include_cys=False) + _ref_charge_hh(
-        vl, ph, pka_set, include_cys=False
-    )
+    return _ref_charge_hh(vh, ph, pka_set, include_cys=False) + _ref_charge_hh(vl, ph, pka_set, include_cys=False)
 
 
 def _manual_fv_pi(vh: str, vl: str, pka_set: PKaSet) -> float:
     """Reference Fv pI = bisect [0, 14] for pH where HH(VH)+HH(VL) = 0.
     Tolerance 1e-4 — tighter than impl's 1e-3, so an impl result within
     its own tolerance still satisfies the 1e-3 assertion."""
-    f = lambda ph: _manual_fv_charge(vh, vl, ph, pka_set)
+
+    def f(ph: float) -> float:
+        return _manual_fv_charge(vh, vl, ph, pka_set)
+
     lo, hi = 0.0, 14.0
     f_lo = f(lo)
     while hi - lo > 1e-4:
@@ -284,7 +281,7 @@ class TestFvManualVerification:
     @pytest.mark.parametrize(
         "name,vh,vl",
         [
-            ("synthetic",   VH_SYNTHETIC,   VL_SYNTHETIC),
+            ("synthetic", VH_SYNTHETIC, VL_SYNTHETIC),
             ("trastuzumab", VH_TRASTUZUMAB, VL_TRASTUZUMAB),
         ],
     )
@@ -296,7 +293,7 @@ class TestFvManualVerification:
     @pytest.mark.parametrize(
         "name,vh,vl",
         [
-            ("synthetic",   VH_SYNTHETIC,   VL_SYNTHETIC),
+            ("synthetic", VH_SYNTHETIC, VL_SYNTHETIC),
             ("trastuzumab", VH_TRASTUZUMAB, VL_TRASTUZUMAB),
         ],
     )
@@ -319,9 +316,7 @@ def _closed_form_aliphatic(seq: str) -> float:
     cleaned = "".join(c for c in seq.upper() if c in STANDARD_AA_SET)
     counts = Counter(cleaned)
     n = sum(counts[a] for a in STANDARD_AAS)
-    return 100.0 * (
-        counts["A"] / n + 2.9 * counts["V"] / n + 3.9 * (counts["I"] + counts["L"]) / n
-    )
+    return 100.0 * (counts["A"] / n + 2.9 * counts["V"] / n + 3.9 * (counts["I"] + counts["L"]) / n)
 
 
 class TestAliphaticIndexClosedForm:
@@ -330,10 +325,10 @@ class TestAliphaticIndexClosedForm:
     @pytest.mark.parametrize(
         "name,seq",
         [
-            ("VH_synthetic",   VH_SYNTHETIC),
+            ("VH_synthetic", VH_SYNTHETIC),
             ("VH_trastuzumab", VH_TRASTUZUMAB),
-            ("VH_cetuximab",   VH_CETUXIMAB),
-            ("VH_adalimumab",  VH_ADALIMUMAB),
+            ("VH_cetuximab", VH_CETUXIMAB),
+            ("VH_adalimumab", VH_ADALIMUMAB),
         ],
     )
     def test_aliphatic_matches_closed_form(self, name: str, seq: str):

@@ -89,9 +89,7 @@ class TestPeptideMode:
         assert stop_rows.height == 20
         assert all(v is None for v in stop_rows["value"].to_list())
         # And every property NA for the stop-codon row.
-        prop_row = (
-            out["properties"].filter(pl.col("entity_key") == "stop").row(0, named=True)
-        )
+        prop_row = out["properties"].filter(pl.col("entity_key") == "stop").row(0, named=True)
         for col in PEPTIDE_PROPERTY_COLUMNS:
             assert prop_row[col] is None
 
@@ -104,9 +102,9 @@ class TestPeptideMode:
         out_upper = run(upper, {"mode": "peptide"})
         out_lower = run(lower, {"mode": "peptide"})
         for col in PEPTIDE_PROPERTY_COLUMNS:
-            u = out_upper["properties"].row(0, named=True)[col]
-            l = out_lower["properties"].row(0, named=True)[col]
-            assert u == pytest.approx(l) if u is not None else l is None
+            up = out_upper["properties"].row(0, named=True)[col]
+            lo = out_lower["properties"].row(0, named=True)[col]
+            assert up == pytest.approx(lo) if up is not None else lo is None
         # AA fractions identical too.
         u_aa = out_upper["aa_fraction"].sort(["entity_key", "aminoAcid"])
         l_aa = out_lower["aa_fraction"].sort(["entity_key", "aminoAcid"])
@@ -163,9 +161,7 @@ class TestAntibodyTcrCdr3Only:
 class TestAntibodyTcrFullCoverage:
     """Both VH and VL fully covered + IG receptor → Fv columns emitted."""
 
-    def test_emits_full_chain_and_fv_columns(
-        self, antibody_full_two_clones: pl.DataFrame, antibody_full_plan: dict
-    ):
+    def test_emits_full_chain_and_fv_columns(self, antibody_full_two_clones: pl.DataFrame, antibody_full_plan: dict):
         out = run(antibody_full_two_clones, antibody_full_plan)
         cols = set(out["properties"].columns)
         for ch in "AB":
@@ -174,9 +170,7 @@ class TestAntibodyTcrFullCoverage:
         for p in FV_PROPS:
             assert f"{p}_Fv" in cols
 
-    def test_full_chain_pi_in_range(
-        self, antibody_full_two_clones: pl.DataFrame, antibody_full_plan: dict
-    ):
+    def test_full_chain_pi_in_range(self, antibody_full_two_clones: pl.DataFrame, antibody_full_plan: dict):
         out = run(antibody_full_two_clones, antibody_full_plan)
         row = out["properties"].filter(pl.col("entity_key") == "c1").row(0, named=True)
         # Variable-region pI should sit in [0, 14] when defined.
@@ -320,9 +314,7 @@ class TestEmptyInput:
     # Peptide mode with zero rows — properties has the 9 scalar columns but no
     # rows; aa_fraction has the 3 schema columns but no rows; stats are empty.
     def test_peptide_mode_zero_rows(self):
-        reads = pl.DataFrame(
-            schema={"entity_key": pl.Utf8, "sequence": pl.Utf8}
-        )
+        reads = pl.DataFrame(schema={"entity_key": pl.Utf8, "sequence": pl.Utf8})
         out = run(reads, {"mode": "peptide"})
         assert out["properties"].height == 0
         for col in PEPTIDE_PROPERTY_COLUMNS:
@@ -521,9 +513,7 @@ class TestPipelineLogging:
             run(reads, {"mode": "peptide"})
         assert any("peptide" in r.message.lower() for r in caplog.records), caplog.text
 
-    def test_peptide_path_logs_scalar_and_aa_milestones(
-        self, caplog: pytest.LogCaptureFixture
-    ):
+    def test_peptide_path_logs_scalar_and_aa_milestones(self, caplog: pytest.LogCaptureFixture):
         reads = pl.DataFrame({"entity_key": ["p1"], "sequence": ["ACDEFGHIKL"]})
         with caplog.at_level(logging.INFO, logger="pipeline"):
             run(reads, {"mode": "peptide"})
@@ -549,10 +539,7 @@ class TestPipelineLogging:
         }
         with caplog.at_level(logging.INFO, logger="pipeline"):
             run(reads, plan)
-        assert any(
-            "antibody" in r.message.lower() or "tcr" in r.message.lower()
-            for r in caplog.records
-        ), caplog.text
+        assert any("antibody" in r.message.lower() or "tcr" in r.message.lower() for r in caplog.records), caplog.text
 
     def test_antibody_path_logs_cdr3_milestone(self, caplog: pytest.LogCaptureFixture):
         reads = pl.DataFrame(

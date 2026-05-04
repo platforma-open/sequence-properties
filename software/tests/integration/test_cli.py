@@ -93,11 +93,16 @@ def test_cli_stats_json_contains_chain_medians(tmp_path: Path):
 
     rc = main(
         [
-            "--input", str(in_tsv),
-            "--plan", str(plan_json),
-            "--output", str(out_tsv),
-            "--aa-fraction", str(aa_tsv),
-            "--stats", str(stats_json),
+            "--input",
+            str(in_tsv),
+            "--plan",
+            str(plan_json),
+            "--output",
+            str(out_tsv),
+            "--aa-fraction",
+            str(aa_tsv),
+            "--stats",
+            str(stats_json),
         ]
     )
     assert rc == 0
@@ -193,11 +198,16 @@ def _run_peptide(tmp_path: Path, suffix: str, rows: list[dict[str, str]]) -> tup
     plan_json.write_text(json.dumps({"mode": "peptide"}))
     rc = main(
         [
-            "--input", str(in_tsv),
-            "--plan", str(plan_json),
-            "--output", str(out_tsv),
-            "--aa-fraction", str(aa_tsv),
-            "--stats", str(stats_json),
+            "--input",
+            str(in_tsv),
+            "--plan",
+            str(plan_json),
+            "--output",
+            str(out_tsv),
+            "--aa-fraction",
+            str(aa_tsv),
+            "--stats",
+            str(stats_json),
         ]
     )
     assert rc == 0
@@ -265,11 +275,16 @@ def test_cli_writes_progress_to_stderr(tmp_path: Path, capsys):
 
     rc = main(
         [
-            "--input", str(in_tsv),
-            "--plan", str(plan_json),
-            "--output", str(out_tsv),
-            "--aa-fraction", str(aa_tsv),
-            "--stats", str(stats_json),
+            "--input",
+            str(in_tsv),
+            "--plan",
+            str(plan_json),
+            "--output",
+            str(out_tsv),
+            "--aa-fraction",
+            str(aa_tsv),
+            "--stats",
+            str(stats_json),
         ]
     )
     assert rc == 0

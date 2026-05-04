@@ -45,12 +45,8 @@ def main(argv: list[str] | None = None) -> int:
     plan = read_plan(args.plan)
     outputs = run(reads, plan)
     write_output_tsv(outputs["properties"], args.output, sort_keys=["entity_key"])
-    write_output_tsv(
-        outputs["aa_fraction"], args.aa_fraction, sort_keys=["entity_key", "aminoAcid"]
-    )
-    Path(args.stats).write_text(
-        json.dumps(outputs["stats"], sort_keys=True, separators=(",", ":"))
-    )
+    write_output_tsv(outputs["aa_fraction"], args.aa_fraction, sort_keys=["entity_key", "aminoAcid"])
+    Path(args.stats).write_text(json.dumps(outputs["stats"], sort_keys=True, separators=(",", ":")))
     return 0
 
 
