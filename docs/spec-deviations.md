@@ -364,3 +364,88 @@ Breaks every current MiXCR run. Not viable.
 
 - Anchor specs: `model/src/index.ts:inputAnchorSpecs`.
 - Modality detection: `main.tpl.tengo:detectMode`.
+
+---
+
+## SD-008: Derive Receptor From `pl7.app/vdj/chain` When Receptor Annotation Is Absent
+
+**Status:** applied
+**Date:** 2026-05-04
+**Affected file:** `workflow/src/main.tpl.tengo` (`chainToReceptor`, axis-domain detection block, per-column fallback loop)
+
+### Symptom
+
+The R13b warning fired on every bulk MiXCR run — `IGHeavy`, `IGLight`,
+`TCRAlpha`, `TCRBeta`, `TCRGamma`, and `TCRDelta` anchors all surfaced
+"Receptor type not detected on the input dataset; defaulting to antibody
+labels." even when the underlying chain identity was unambiguous.
+
+### Root cause
+
+Bulk MiXCR's `clonotypes.byCloneKeyBySample/<chain>/umi-count` columns
+expose `pl7.app/vdj/chain` on the `clonotypeKey` axis domain (e.g.
+`"IGHeavy"`, `"IGLight"`, `"TCRAlpha"`) but do not stamp
+`pl7.app/vdj/receptor`. SD-003 fixed receptor detection for single-cell
+runs by reading the receptor key on the axis domain, but bulk runs lack
+that key entirely, so detection fell through to the IG default and the
+R13b warning fired regardless of whether the chain was IG or TCR.
+
+### Trigger
+
+- Any bulk MiXCR run.
+- Project: TinyTrees (`NG:0x388003`), bulk MiXCR block
+  `da88a5ef-37e6-4a25-9c9d-fcd4713dc4ee` — observed 2026-05-04 with
+  IG Heavy and IG Light anchors.
+
+### Impact (before fix)
+
+- TCR bulk runs misreported as antibody (chain labels "heavy"/"light"
+  instead of "alpha"/"beta") because `receptor` defaulted to `IG`.
+- The R13b warning showed in every bulk-mode block, including
+  unambiguously-IG runs, training users to ignore it.
+- TCRGD-specific labelling and the γδ message never fired on bulk γδ
+  TCR data.
+
+### Options considered
+
+**A. Derive receptor from chain when receptor key is absent. [chosen]**
+The MiXCR chain enum maps unambiguously to a receptor:
+`IGHeavy`/`IGLight`/`IGKappa`/`IGLambda` → `IG`,
+`TCRAlpha`/`TCRBeta` → `TCRAB`,
+`TCRGamma`/`TCRDelta` → `TCRGD`. Adds a small helper plus a fallback
+inside the existing axis-domain and per-column receptor blocks.
+
+**B. Require MiXCR to emit `pl7.app/vdj/receptor` on bulk axes.**
+Correct long-term; out of seqprops's scope and blocks every existing
+bulk MiXCR output.
+
+**C. Suppress the warning on bulk mode.**
+Hides the symptom but leaves the receptor wrong (TCR misreported as IG),
+breaking γδ labelling and γδ heads-up messages.
+
+### Decision
+
+**A.** Receptor detection precedence is now:
+1. Axis-domain `pl7.app/vdj/receptor` (SD-003).
+2. Axis-domain `pl7.app/vdj/chain` → derived receptor.
+3. Per-column `pl7.app/vdj/receptor` (legacy column-domain check).
+4. Per-column `pl7.app/vdj/chain` → derived receptor.
+5. Default `IG` + R13b warning when nothing matches.
+
+Behaviour preserved on inputs that DO carry receptor — the explicit
+key still takes precedence over the derived one.
+
+### Implementation
+
+`chainToReceptor` helper in `workflow/src/main.tpl.tengo`. Two fallback
+inserts: the axis-domain block (around the SD-003 site) and the
+per-column loop. `receptorSeen` set when the derivation succeeds, so
+the R13b warning only fires when neither receptor nor a recognised
+chain is present.
+
+### References
+
+- Spec sections touched: `README.md` Requirement R13b (receptor detection).
+- MiXCR chain enum verified via `mcp__pl__query_table` on the bulk QC
+  pt (`reports/bulk/clonotypesByChain/{IGHeavy,IGLight,TCRAlpha,TCRBeta,TCRGamma,TCRDelta}`).
+- Predecessor: SD-003 (receptor on axis domain for single-cell).
