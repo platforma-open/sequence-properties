@@ -1,4 +1,4 @@
-import { platforma } from "@platforma-open/MiLaboratories.sequence-properties.model";
+import { platforma } from "@platforma-open/milaboratories.sequence-properties.model";
 import { defineAppV3 } from "@platforma-sdk/ui-vue";
 import { watchEffect } from "vue";
 import MainPage from "./pages/MainPage.vue";

@@ -87,13 +87,13 @@ importers:
 
   block:
     dependencies:
-      '@platforma-open/MiLaboratories.sequence-properties.model':
+      '@platforma-open/milaboratories.sequence-properties.model':
         specifier: workspace:*
         version: link:../model
-      '@platforma-open/MiLaboratories.sequence-properties.ui':
+      '@platforma-open/milaboratories.sequence-properties.ui':
         specifier: workspace:*
         version: link:../ui
-      '@platforma-open/MiLaboratories.sequence-properties.workflow':
+      '@platforma-open/milaboratories.sequence-properties.workflow':
         specifier: workspace:*
         version: link:../workflow
       '@platforma-sdk/model':
@@ -140,9 +140,6 @@ importers:
 
   test:
     dependencies:
-      '@platforma-open/MiLaboratories.sequence-properties.model':
-        specifier: workspace:*
-        version: link:../model
       '@platforma-open/milaboratories.mixcr-clonotyping-2':
         specifier: ^2.18.3
         version: 2.18.3(@bytecodealliance/preview2-shim@0.17.8)(typescript@5.6.3)
@@ -155,6 +152,9 @@ importers:
       '@platforma-open/milaboratories.samples-and-data.model':
         specifier: ^2.8.0
         version: 2.8.0
+      '@platforma-open/milaboratories.sequence-properties.model':
+        specifier: workspace:*
+        version: link:../model
       '@platforma-open/milaboratories.xsv-import.model':
         specifier: ^1.0.4
         version: 1.0.4
@@ -162,7 +162,7 @@ importers:
         specifier: 'catalog:'
         version: 1.69.0
       this-block:
-        specifier: workspace:@platforma-open/MiLaboratories.sequence-properties@*
+        specifier: workspace:@platforma-open/milaboratories.sequence-properties@*
         version: link:../block
     devDependencies:
       '@milaboratories/ts-builder':
@@ -189,7 +189,7 @@ importers:
 
   ui:
     dependencies:
-      '@platforma-open/MiLaboratories.sequence-properties.model':
+      '@platforma-open/milaboratories.sequence-properties.model':
         specifier: workspace:*
         version: link:../model
       '@platforma-sdk/ui-vue':
@@ -217,7 +217,7 @@ importers:
 
   workflow:
     dependencies:
-      '@platforma-open/MiLaboratories.sequence-properties.software':
+      '@platforma-open/milaboratories.sequence-properties.software':
         specifier: workspace:*
         version: link:../software
       '@platforma-sdk/workflow-tengo':

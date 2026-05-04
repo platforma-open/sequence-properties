@@ -1,5 +1,5 @@
 {
-  "name": "@platforma-open/MiLaboratories.sequence-properties",
+  "name": "@platforma-open/milaboratories.sequence-properties",
   "version": "1.1.0",
   "scripts": {
     "build": "shx rm -rf ./block-pack && block-tools pack",
@@ -13,20 +13,20 @@
   ],
   "dependencies": {
     "@platforma-sdk/model": "catalog:",
-    "@platforma-open/MiLaboratories.sequence-properties.workflow": "workspace:*",
-    "@platforma-open/MiLaboratories.sequence-properties.model": "workspace:*",
-    "@platforma-open/MiLaboratories.sequence-properties.ui": "workspace:*"
+    "@platforma-open/milaboratories.sequence-properties.workflow": "workspace:*",
+    "@platforma-open/milaboratories.sequence-properties.model": "workspace:*",
+    "@platforma-open/milaboratories.sequence-properties.ui": "workspace:*"
   },
   "block": {
     "components": {
-      "workflow": "@platforma-open/MiLaboratories.sequence-properties.workflow/dist/tengo/tpl/main.plj.gz",
-      "model": "@platforma-open/MiLaboratories.sequence-properties.model/dist/model.json",
-      "ui": "@platforma-open/MiLaboratories.sequence-properties.ui/dist"
+      "workflow": "@platforma-open/milaboratories.sequence-properties.workflow/dist/tengo/tpl/main.plj.gz",
+      "model": "@platforma-open/milaboratories.sequence-properties.model/dist/model.json",
+      "ui": "@platforma-open/milaboratories.sequence-properties.ui/dist"
     },
     "meta": {
       "title": "Sequence Properties",
       "logo": "file:../logos/block-logo.png",
-      "url": "https://github.com/platforma-open/MiLaboratories.sequence-properties",
+      "url": "https://github.com/platforma-open/sequence-properties",
       "support": "mailto:support@milaboratories.com",
       "description": "Compute physico-chemical properties (charge, pI, GRAVY, MW, extinction coefficient, instability/aliphatic indices, aromaticity) for peptides and antibody/TCR sequences.",
       "longDescription": "file:../docs/description.md",
