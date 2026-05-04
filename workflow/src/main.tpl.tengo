@@ -14,6 +14,7 @@ pframes := import("@platforma-sdk/workflow-tengo:pframes")
 canonical := import("@platforma-sdk/workflow-tengo:canonical")
 maps := import("@platforma-sdk/workflow-tengo:maps")
 constants := import("@platforma-sdk/workflow-tengo:constants")
+messages := import(":messages")
 
 processTpl := assets.importTemplate(":process")
 
@@ -241,29 +242,29 @@ wf.body(func(args) {
 			} else if feats["CDR3"] && present == 1 {
 				cdr3Only[chain] = true
 			} else if feats["CDR3"] {
-				infoMessages += ["Partial-region input: " + string(present) + " of 7 required regions found for " + chainLabel(chain) + " chain — full-chain properties not computed. All seven regions (FR1, CDR1, FR2, CDR2, FR3, CDR3, FR4) are required."]
+				infoMessages += [messages.partialChainMissingFullChain(present, chainLabel(chain))]
 			} else {
 				// Chain has 1-6 of 7 regions but lacks CDR3 — neither CDR3-mode nor
 				// full-chain mode applies. Without R11b's surfaced silent fallthrough
 				// the user would see neither full-chain nor CDR3 columns and no
 				// explanation why.
-				infoMessages += ["Partial-region input: " + string(present) + " of 7 required regions found for " + chainLabel(chain) + " chain (CDR3 absent) — no per-chain properties computed. CDR3 is required for per-chain charge / hydrophobicity; all seven regions are required for full-chain properties."]
+				infoMessages += [messages.partialChainNoCdr3(present, chainLabel(chain))]
 			}
 		}
 		anyChain := len(chainKeys) > 0
 		if !anyChain {
-			infoMessages += ["No recognized VDJ region columns found in the input dataset."]
+			infoMessages += [messages.noRecognizedColumns()]
 		}
 
 		if len(cdr3Only) > 0 && len(fullChain) == 0 {
-			infoMessages += ["CDR3-only input detected — full-chain properties not computed. To enable them, use a MiXCR preset that exports all VDJ regions."]
+			infoMessages += [messages.cdr3OnlyInput()]
 		}
 		if receptor == "TCRGD" {
-			infoMessages += ["γδ TCR input detected — displaying with γδ-specific labels; Fv columns are not computed for TCR inputs."]
+			infoMessages += [messages.gammaDeltaTcr()]
 		}
 		// R13b: warn when no recognised receptor was seen — defaults to IG.
 		if !receptorSeen && anyChain {
-			infoMessages += ["Receptor type not detected on the input dataset; defaulting to antibody labels. Use a MiXCR preset that emits the receptor annotation if this is a TCR dataset."]
+			infoMessages += [messages.receptorNotDetected()]
 		}
 	}
 
@@ -346,6 +347,7 @@ wf.body(func(args) {
 		})
 	})
 
+	// Cache outputs for 24 hours (ms) to skip re-running identical work.
 	propertiesPf := processResult.output("propertiesPf", 24 * 60 * 60 * 1000)
 	exportPframe := processResult.output("exportPframe", 24 * 60 * 60 * 1000)
 	infoBlob := processResult.output("info", 24 * 60 * 60 * 1000)

@@ -10,12 +10,9 @@ maps := import("@platforma-sdk/workflow-tengo:maps")
 smart := import("@platforma-sdk/workflow-tengo:smart")
 canonical := import("@platforma-sdk/workflow-tengo:canonical")
 constants := import("@platforma-sdk/workflow-tengo:constants")
+messages := import(":messages")
 
 self.defineOutputs("propertiesPf", "exportPframe", "info")
-
-// R11c — VHH/single-domain antibody detection. Spec condition: receptor IG,
-// CDR3 present only on chain A, median CDR-H3 length ≥ 16 aa.
-VHH_MESSAGE := "Possible VHH/single-domain antibody input detected (heavy chain only; CDR-H3 length distribution consistent with VHH). IgG-calibrated CDR-H3 length thresholds (>15 aa elevated risk, >20 aa high risk) do not apply to VHH — disregard these thresholds for nanobody libraries."
 
 // Receptor + chain → human label fragments (CDR3 / full-chain).
 // Spec R13a: PColumn name and chain domain are unchanged; only the label varies.
@@ -35,14 +32,23 @@ labelFragments := func(receptor, chain) {
 
 // Build a single output column descriptor consumed by xsv.importFile.
 // `tsvCol` is the TSV column header emitted by Python (e.g. "charge_peptide", "charge_A_CDR3").
+// Clones the caller's `annotations` dict — mutating it in place would stamp
+// the label into shared references if any caller ever reused the literal,
+// the same aliasing footgun that the export-domain clone below already guards.
 makeCol := func(tsvCol, valName, valueType, label, domain, annotations) {
+	newAnnotations := {}
+	if annotations {
+		for k, v in annotations {
+			newAnnotations[k] = v
+		}
+	}
+	newAnnotations["pl7.app/label"] = label
 	spec := {
 		name: valName,
 		valueType: valueType,
 		domain: domain,
-		annotations: annotations
+		annotations: newAnnotations
 	}
-	spec.annotations["pl7.app/label"] = label
 	return { column: tsvCol, id: tsvCol, naRegex: "", allowNA: true, spec: spec }
 }
 
@@ -67,11 +73,11 @@ self.body(func(args) {
 
 	// R11c — single-domain antibodies (nanobodies / VHH) miss the IgG-calibrated
 	// CDR-H3 length risk thresholds. Surface an info message when the dataset
-	// looks like VHH (heavy chain only, long median CDR-H3).
+	// looks like VHH (heavy chain only, long median CDR-H3 ≥ 16 aa).
 	if receptor == "IG" && len(chainsWithCdr3) == 1 && chainsWithCdr3[0] == "A" {
 		medA := medians["A"]
 		if medA != undefined && medA >= 16 {
-			infoMessages += [VHH_MESSAGE]
+			infoMessages += [messages.vhh()]
 		}
 	}
 
