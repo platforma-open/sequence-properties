@@ -74,6 +74,44 @@ class TestPeptideMode:
         pep3_values = aa.filter(pl.col("entity_key") == "pep3")["value"].to_list()
         assert all(v is None for v in pep3_values)
 
+    # R7 shape contract: an invalid-but-non-empty sequence (stop codon) must still
+    # emit exactly 20 rows of None — same shape as an empty cell. The 2-axis
+    # PColumn requires uniform width across entities.
+    def test_aa_fraction_stop_codon_emits_20_na_rows(self):
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["valid", "stop"],
+                "sequence": ["ACDEFGHIKL", "ACDE*FGH"],
+            }
+        )
+        out = run(reads, {"mode": "peptide"})
+        stop_rows = out["aa_fraction"].filter(pl.col("entity_key") == "stop")
+        assert stop_rows.height == 20
+        assert all(v is None for v in stop_rows["value"].to_list())
+        # And every property NA for the stop-codon row.
+        prop_row = (
+            out["properties"].filter(pl.col("entity_key") == "stop").row(0, named=True)
+        )
+        for col in PEPTIDE_PROPERTY_COLUMNS:
+            assert prop_row[col] is None
+
+    # Spec L459: "Normalize all sequences to uppercase". Lowercase input must
+    # produce identical output to the same TSV uppercased. Guards against the
+    # silent failure mode where lowercase residues get filtered as non-standard.
+    def test_lowercase_input_normalized(self):
+        upper = pl.DataFrame({"entity_key": ["p"], "sequence": ["ACDEFGHIKL"]})
+        lower = pl.DataFrame({"entity_key": ["p"], "sequence": ["acdefghikl"]})
+        out_upper = run(upper, {"mode": "peptide"})
+        out_lower = run(lower, {"mode": "peptide"})
+        for col in PEPTIDE_PROPERTY_COLUMNS:
+            u = out_upper["properties"].row(0, named=True)[col]
+            l = out_lower["properties"].row(0, named=True)[col]
+            assert u == pytest.approx(l) if u is not None else l is None
+        # AA fractions identical too.
+        u_aa = out_upper["aa_fraction"].sort(["entity_key", "aminoAcid"])
+        l_aa = out_lower["aa_fraction"].sort(["entity_key", "aminoAcid"])
+        assert u_aa.equals(l_aa)
+
 
 # ---------------------------------------------------------------------------
 # Antibody/TCR mode
@@ -178,6 +216,146 @@ class TestAntibodyTcrPartialClone:
             assert rows["c2"][f"{p}_A_VDJRegion"] is None
         # CDR3 still computed for c2 (CDR3 column present).
         assert rows["c2"]["charge_A_CDR3"] is not None
+
+    # Spec edge cases table: stop codon `*` invalidates the whole sequence. When
+    # `*` lands in any region (FR or CDR), the reconstructed full chain contains
+    # `*` and `is_invalid_sequence` NAs every full-chain property for that clone.
+    # CDR3 columns are independent — clean CDR3 must still produce CDR3 props.
+    def test_stop_codon_in_fr_nas_full_chain_only(self):
+        regions = {
+            "A_FR1": ["EVQLVES", "EVQLVES"],
+            "A_CDR1": ["GFTFSSY", "GFTFSSY"],
+            "A_FR2": ["AMSWVRQ", "AMS*VRQ"],  # c2 has stop codon in FR2
+            "A_CDR2": ["ISGSGGS", "ISGSGGS"],
+            "A_FR3": ["TYYAESVKGRFTI", "TYYAESVKGRFTI"],
+            "A_CDR3": ["CARDYW", "CARGFW"],
+            "A_FR4": ["WGQGTLV", "WGQGTLV"],
+        }
+        reads = pl.DataFrame({"entity_key": ["c1", "c2"], **regions})
+        plan = {
+            "mode": "antibody_tcr_legacy_bulk",
+            "receptor": "IG",
+            "chains": ["A"],
+            "fullChains": ["A"],
+            "hasFv": False,
+        }
+        out = run(reads, plan)
+        rows = {r["entity_key"]: r for r in out["properties"].iter_rows(named=True)}
+        # c2 — `*` in FR2 invalidates every full-chain property.
+        for p in FULL_CHAIN_PROPS:
+            assert rows["c2"][f"{p}_A_VDJRegion"] is None
+        # c2 CDR3 is clean ("CARGFW") — CDR3 props must still compute.
+        assert rows["c2"]["charge_A_CDR3"] is not None
+        assert rows["c2"]["gravy_A_CDR3"] is not None
+        # c1 unaffected.
+        assert rows["c1"]["mw_A_VDJRegion"] is not None
+
+
+class TestSingleCellChainDropout:
+    """Single-cell chain dropout — clone has all 7 regions for one chain but the
+    other chain is entirely empty for that clone. Per-chain columns emit values
+    for the present chain and NA for the absent one; Fv NA for that clone.
+
+    Distinct from CDR3-only (R11a) and partial-region (R11b) — those are
+    dataset-level shapes. This is per-clone dropout common in 10x sc data.
+    """
+
+    def test_chain_b_dropout_for_one_clone(self):
+        regions = {
+            # c1: both chains complete. c2: chain B every region empty.
+            "A_FR1": ["EVQLVES", "EVQLVES"],
+            "A_CDR1": ["GFTFSSY", "GFTFSSY"],
+            "A_FR2": ["AMSWVRQ", "AMSWVRQ"],
+            "A_CDR2": ["ISGSGGS", "ISGSGGS"],
+            "A_FR3": ["TYYAESVKGRFTI", "TYYAESVKGRFTI"],
+            "A_CDR3": ["CARDYW", "CARGFW"],
+            "A_FR4": ["WGQGTLV", "WGQGTLV"],
+            "B_FR1": ["DIQMTQS", ""],
+            "B_CDR1": ["QSISSY", ""],
+            "B_FR2": ["LNWYQQK", ""],
+            "B_CDR2": ["AASSLQS", ""],
+            "B_FR3": ["GVPSRFSGSG", ""],
+            "B_CDR3": ["CQQYNS", ""],
+            "B_FR4": ["FGQGTKV", ""],
+        }
+        reads = pl.DataFrame({"entity_key": ["c1", "c2"], **regions})
+        plan = {
+            "mode": "antibody_tcr_legacy_sc",
+            "receptor": "IG",
+            "chains": ["A", "B"],
+            "fullChains": ["A", "B"],
+            "hasFv": True,
+        }
+        out = run(reads, plan)
+        rows = {r["entity_key"]: r for r in out["properties"].iter_rows(named=True)}
+
+        # c1 paired and complete — every column populated.
+        for p in CDR3_PROPS:
+            assert rows["c1"][f"{p}_A_CDR3"] is not None
+            assert rows["c1"][f"{p}_B_CDR3"] is not None
+        for p in FULL_CHAIN_PROPS:
+            assert rows["c1"][f"{p}_A_VDJRegion"] is not None
+            assert rows["c1"][f"{p}_B_VDJRegion"] is not None
+        for p in FV_PROPS:
+            assert rows["c1"][f"{p}_Fv"] is not None
+
+        # c2 chain A intact, chain B empty.
+        for p in CDR3_PROPS:
+            assert rows["c2"][f"{p}_A_CDR3"] is not None
+            assert rows["c2"][f"{p}_B_CDR3"] is None
+        for p in FULL_CHAIN_PROPS:
+            assert rows["c2"][f"{p}_A_VDJRegion"] is not None
+            assert rows["c2"][f"{p}_B_VDJRegion"] is None
+        # Fv requires both chains — every Fv column NA for c2.
+        for p in FV_PROPS:
+            assert rows["c2"][f"{p}_Fv"] is None
+
+
+class TestEmptyInput:
+    """Zero-row inputs must produce well-formed outputs, not crash. The workflow
+    panics earlier on missing columns, but the Python step must remain robust if
+    the upstream filter selects zero entities.
+    """
+
+    # Peptide mode with zero rows — properties has the 9 scalar columns but no
+    # rows; aa_fraction has the 3 schema columns but no rows; stats are empty.
+    def test_peptide_mode_zero_rows(self):
+        reads = pl.DataFrame(
+            schema={"entity_key": pl.Utf8, "sequence": pl.Utf8}
+        )
+        out = run(reads, {"mode": "peptide"})
+        assert out["properties"].height == 0
+        for col in PEPTIDE_PROPERTY_COLUMNS:
+            assert col in out["properties"].columns
+        assert out["aa_fraction"].height == 0
+        assert set(out["aa_fraction"].columns) == {"entity_key", "aminoAcid", "value"}
+        assert out["stats"] == {"medianCdr3Length": {}}
+
+    # Antibody mode with zero rows — properties has entity_key + the columns
+    # the plan asks for; medians dict is empty (no CDR3 lengths to compute).
+    def test_antibody_mode_zero_rows(self):
+        reads = pl.DataFrame(
+            schema={
+                "entity_key": pl.Utf8,
+                "A_CDR3": pl.Utf8,
+                "B_CDR3": pl.Utf8,
+            }
+        )
+        plan = {
+            "mode": "antibody_tcr_legacy_sc",
+            "receptor": "IG",
+            "chains": ["A", "B"],
+            "fullChains": [],
+            "hasFv": False,
+        }
+        out = run(reads, plan)
+        assert out["properties"].height == 0
+        cols = set(out["properties"].columns)
+        assert "entity_key" in cols
+        for p in CDR3_PROPS:
+            assert f"{p}_A_CDR3" in cols
+            assert f"{p}_B_CDR3" in cols
+        assert out["stats"] == {"medianCdr3Length": {}}
 
 
 class TestR11cStats:

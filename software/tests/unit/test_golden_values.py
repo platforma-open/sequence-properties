@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-from pka_tables import IPC2_PROTEIN
+from pka_tables import IPC2_PEPTIDE, IPC2_PROTEIN
 from properties import (
     aliphatic_index,
     aromaticity,
@@ -123,3 +123,87 @@ class TestFvGoldenValues:
 
     def test_fv_mw(self):
         assert fv_molecular_weight(VH, VL) == pytest.approx(11517.5517, abs=ABS_TOL)
+
+
+# Three peptides chosen for varied composition — covers the spec M1 acceptance
+# criterion explicitly (charge / GRAVY / MW / ε pinned on ≥3 peptide sequences).
+# Peptide pKa set, Cys included as ionizable per spec L535.
+#
+# bradykinin   — RPPGFSPFR, 9 aa, basic, no aromatic, no Cys, <10 aa (II = NA)
+# scan12       — ACDEFGHIKLMN, 12 aa mixed-property scan
+# oxytocin     — CYIQNCPLG, 9 aa, paired Cys + 1 Tyr (ε exercises floor(C/2)·125)
+PEPTIDE_GOLDENS = [
+    {
+        "name": "bradykinin",
+        "seq": "RPPGFSPFR",
+        "charge": 1.898520,
+        "pi": 11.493347,
+        "gravy": -1.044444,
+        "mw": 1060.2085,
+        "eox": 0.0,
+        "ered": 0.0,
+        "instability": None,  # length < 10 → NA
+        "aliphatic": 0.0,
+        "aromaticity": 0.222222,
+    },
+    {
+        "name": "scan12",
+        "seq": "ACDEFGHIKLMN",
+        "charge": -0.949365,
+        "pi": 5.530701,
+        "gravy": -0.058333,
+        "mw": 1377.5880,
+        "eox": 0.0,
+        "ered": 0.0,
+        "instability": 84.300000,
+        "aliphatic": 73.333333,
+        "aromaticity": 0.083333,
+    },
+    {
+        "name": "oxytocin",
+        "seq": "CYIQNCPLG",
+        "charge": -0.115650,
+        "pi": 5.435852,
+        "gravy": 0.333333,
+        "mw": 1010.1878,
+        "eox": 1615.0,  # 1490 (Y) + 125 (one disulfide from 2 Cys)
+        "ered": 1490.0,
+        "instability": None,
+        "aliphatic": 86.666667,
+        "aromaticity": 0.111111,
+    },
+]
+
+
+class TestPeptideGoldenValues:
+    """Pinned numeric output for representative peptides — discharges the M1
+    acceptance criterion of cross-validating ≥3 peptide sequences against the
+    BioPython-backed pipeline. Charge / pI use IPC 2.0 peptide pKa with Cys
+    included; ε / MW / GRAVY / II / AI / aromaticity use BioPython tables.
+    """
+
+    @pytest.mark.parametrize(
+        "case",
+        PEPTIDE_GOLDENS,
+        ids=[c["name"] for c in PEPTIDE_GOLDENS],
+    )
+    def test_peptide_property(self, case: dict):
+        seq = case["seq"]
+        assert charge_at_ph(seq, 7.0, IPC2_PEPTIDE, include_cys=True) == pytest.approx(
+            case["charge"], abs=ABS_TOL
+        )
+        assert isoelectric_point(seq, IPC2_PEPTIDE, include_cys=True) == pytest.approx(
+            case["pi"], abs=ABS_TOL
+        )
+        assert gravy(seq) == pytest.approx(case["gravy"], abs=ABS_TOL)
+        assert molecular_weight(seq) == pytest.approx(case["mw"], abs=ABS_TOL)
+        eox, ered = extinction_coefficients(seq)
+        assert eox == pytest.approx(case["eox"], abs=ABS_TOL)
+        assert ered == pytest.approx(case["ered"], abs=ABS_TOL)
+        ii = instability_index(seq)
+        if case["instability"] is None:
+            assert ii is None
+        else:
+            assert ii == pytest.approx(case["instability"], abs=ABS_TOL)
+        assert aliphatic_index(seq) == pytest.approx(case["aliphatic"], abs=ABS_TOL)
+        assert aromaticity(seq) == pytest.approx(case["aromaticity"], abs=ABS_TOL)
