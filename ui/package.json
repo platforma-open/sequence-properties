@@ -1,5 +1,5 @@
 {
-  "name": "@platforma-open/MiLaboratories.sequence-properties.ui",
+  "name": "@platforma-open/milaboratories.sequence-properties.ui",
   "version": "1.1.0",
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "check": "ts-builder check --target browser"
   },
   "dependencies": {
-    "@platforma-open/MiLaboratories.sequence-properties.model": "workspace:*",
+    "@platforma-open/milaboratories.sequence-properties.model": "workspace:*",
     "@platforma-sdk/ui-vue": "catalog:"
   },
   "devDependencies": {
