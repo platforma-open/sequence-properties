@@ -38,19 +38,31 @@ const tableSettings = usePlDataTableSettingsV2({
       v-model="app.model.data.inputAnchor"
       :options="app.model.outputs.inputOptions"
       label="Input dataset"
+    >
+      <template #tooltip>
+        <div>
+          <strong>Sequence dataset</strong><br />
+          Peptide extraction or MiXCR clonotyping output. The block detects modality (peptide vs
+          antibody/TCR) from the dataset's axes and computes physico-chemical properties
+          accordingly.
+        </div>
+      </template>
+    </PlDropdownRef>
+
+    <PlAlert
+      v-for="(message, idx) in app.model.outputs.info?.messages ?? []"
+      :key="idx"
+      type="info"
+    >
+      {{ message }}
+    </PlAlert>
+
+    <PlAgDataTableV2
+      v-model="app.model.data.tableState"
+      :settings="tableSettings"
+      not-ready-text="Select an input dataset to compute sequence properties."
+      show-export-button
     />
-
-    <template v-if="app.model.outputs.info">
-      <PlAlert
-        v-for="(message, idx) in app.model.outputs.info?.messages ?? []"
-        :key="idx"
-        type="info"
-      >
-        {{ message }}
-      </PlAlert>
-    </template>
-
-    <PlAgDataTableV2 v-model="app.model.data.tableState" :settings="tableSettings" />
   </PlBlockPage>
 
   <PlSlideModal v-model="logOpen" width="80%">

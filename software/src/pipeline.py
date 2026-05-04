@@ -327,7 +327,7 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
     if chains:
         log.info("Computing CDR3 properties for chains %s (%d clones)", list(chains), n)
     if full_chains:
-        log.info("Reconstructing full chains %s and computing VDJRegion properties", list(full_chains))
+        log.info("Reconstructing full chains %s and computing full-chain properties", list(full_chains))
     if plan.get("hasFv"):
         log.info("Computing Fv properties (paired VH+VL)")
     rows = [_compute_row_for(record, plan) for record in reads.iter_rows(named=True)]
