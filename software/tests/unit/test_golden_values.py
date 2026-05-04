@@ -189,12 +189,8 @@ class TestPeptideGoldenValues:
     )
     def test_peptide_property(self, case: dict):
         seq = case["seq"]
-        assert charge_at_ph(seq, 7.0, IPC2_PEPTIDE, include_cys=True) == pytest.approx(
-            case["charge"], abs=ABS_TOL
-        )
-        assert isoelectric_point(seq, IPC2_PEPTIDE, include_cys=True) == pytest.approx(
-            case["pi"], abs=ABS_TOL
-        )
+        assert charge_at_ph(seq, 7.0, IPC2_PEPTIDE, include_cys=True) == pytest.approx(case["charge"], abs=ABS_TOL)
+        assert isoelectric_point(seq, IPC2_PEPTIDE, include_cys=True) == pytest.approx(case["pi"], abs=ABS_TOL)
         assert gravy(seq) == pytest.approx(case["gravy"], abs=ABS_TOL)
         assert molecular_weight(seq) == pytest.approx(case["mw"], abs=ABS_TOL)
         eox, ered = extinction_coefficients(seq)
