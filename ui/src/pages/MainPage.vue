@@ -1,20 +1,67 @@
 <script setup lang="ts">
-import { PlAlert, PlBlockPage, PlTextField } from "@platforma-sdk/ui-vue";
+import {
+  PlAgDataTableV2,
+  PlAlert,
+  PlBlockPage,
+  PlBtnGhost,
+  PlDropdownRef,
+  PlLogView,
+  PlMaskIcon24,
+  PlSlideModal,
+  usePlDataTableSettingsV2,
+} from "@platforma-sdk/ui-vue";
+import { ref } from "vue";
 import { useApp } from "../app";
 
 const app = useApp();
+
+const logOpen = ref(false);
+
+const tableSettings = usePlDataTableSettingsV2({
+  model: () => app.model.outputs.propertiesTable,
+});
 </script>
 
 <template>
   <PlBlockPage>
-    <PlTextField v-model="app.model.data.name" label="Enter your name" :clearable="() => ''" />
+    <template #title>Sequence Properties</template>
+    <template #append>
+      <PlBtnGhost @click.stop="() => (logOpen = true)">
+        Logs
+        <template #append>
+          <PlMaskIcon24 name="file-logs" />
+        </template>
+      </PlBtnGhost>
+    </template>
 
-    <PlAlert v-if="app.model.outputs.tengoMessage" type="success">
-      {{ app.model.outputs.tengoMessage }}
+    <PlDropdownRef
+      v-model="app.model.data.inputAnchor"
+      :options="app.model.outputs.inputOptions"
+      label="Input dataset"
+    >
+      <template #tooltip>
+        Peptide extraction or MiXCR clonotyping output. Modality is auto-detected.
+      </template>
+    </PlDropdownRef>
+
+    <PlAlert
+      v-for="(message, idx) in app.model.outputs.info?.messages ?? []"
+      :key="idx"
+      type="info"
+    >
+      {{ message }}
     </PlAlert>
 
-    <PlAlert v-if="app.model.outputs.pythonMessage" type="success">
-      {{ app.model.outputs.pythonMessage }}
-    </PlAlert>
+    <PlAgDataTableV2
+      v-model="app.model.data.tableState"
+      :settings="tableSettings"
+      not-ready-text="Select an input dataset to compute sequence properties."
+      show-export-button
+    />
   </PlBlockPage>
+
+  <PlSlideModal v-model="logOpen" width="80%">
+    <template #title>Processing Log</template>
+    <PlLogView :log-handle="app.model.outputs.processingLog" />
+  </PlSlideModal>
 </template>

@@ -1,0 +1,39 @@
+name: Python Tests
+
+on:
+  merge_group:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches:
+      - 'main'
+  push:
+    branches:
+      - 'main'
+  workflow_dispatch: {}
+
+jobs:
+  pytest:
+    if: github.repository != 'milaboratory/platforma-sequence-properties'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: software
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: software/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Ruff check
+        run: uv run ruff check
+
+      - name: Ruff format check
+        run: uv run ruff format --check
+
+      - name: Run pytest
+        run: uv run pytest

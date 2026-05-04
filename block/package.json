@@ -4,7 +4,7 @@
   "scripts": {
     "build": "shx rm -rf ./block-pack && block-tools pack",
     "mark-stable": "block-tools mark-stable -r 's3://milab-euce1-prod-pkgs-s3-block-registry/pub/releases/?region=eu-central-1'",
-    "prepublishOnly": "block-tools pack && block-tools publish -r 's3://milab-euce1-prod-pkgs-s3-block-registry/pub/releases/?region=eu-central-1'",
+    "prepublishOnly": "block-tools pack && block-tools publish --unstable -r 's3://milab-euce1-prod-pkgs-s3-block-registry/pub/releases/?region=eu-central-1'",
     "do-pack": "shx rm -f *.tgz && block-tools pack && pnpm pack && shx mv *.tgz package.tgz"
   },
   "files": [
@@ -24,14 +24,14 @@
       "ui": "@platforma-open/MiLaboratories.sequence-properties.ui/dist"
     },
     "meta": {
-      "title": "Block Title",
+      "title": "Sequence Properties",
       "logo": "file:../logos/block-logo.png",
       "url": "https://github.com/platforma-open/MiLaboratories.sequence-properties",
       "support": "mailto:support@milaboratories.com",
-      "description": "Simple Hello World block that can be used as a boilerplate for newly created blocks.",
+      "description": "Compute physico-chemical properties (charge, pI, GRAVY, MW, extinction coefficient, instability/aliphatic indices, aromaticity) for peptides and antibody/TCR sequences.",
       "longDescription": "file:../docs/description.md",
       "changelog": "file:./CHANGELOG.md",
-      "tags": ["tutorial"],
+      "tags": ["airr", "antibody", "peptide", "downstream"],
       "organization": {
         "name": "MiLaboratories Inc",
         "url": "https://milaboratories.com/",
