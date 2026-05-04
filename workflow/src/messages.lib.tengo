@@ -1,0 +1,58 @@
+// User-facing info messages emitted by the workflow.
+//
+// Centralised so the inventory of UX strings is scannable in one place.
+// Each helper returns a single message string; callers append it to the
+// running info-message list. Receptor/chain rendering is the caller's job —
+// helpers accept already-rendered chain labels.
+
+ll := import("@platforma-sdk/workflow-tengo:ll")
+
+partialChainMissingFullChain := func(present, chainLabel) {
+	return "Partial-region input: " + string(present) + " of 7 required regions found for " +
+		chainLabel + " chain — full-chain properties not computed. " +
+		"All seven regions (FR1, CDR1, FR2, CDR2, FR3, CDR3, FR4) are required."
+}
+
+partialChainNoCdr3 := func(present, chainLabel) {
+	return "Partial-region input: " + string(present) + " of 7 required regions found for " +
+		chainLabel + " chain (CDR3 absent) — no per-chain properties computed. " +
+		"CDR3 is required for per-chain charge / hydrophobicity; " +
+		"all seven regions are required for full-chain properties."
+}
+
+noRecognizedColumns := func() {
+	return "No recognized VDJ region columns found in the input dataset."
+}
+
+cdr3OnlyInput := func() {
+	return "CDR3-only input detected — full-chain properties not computed. " +
+		"To enable them, use a MiXCR preset that exports all VDJ regions."
+}
+
+gammaDeltaTcr := func() {
+	return "γδ TCR input detected — displaying with γδ-specific labels; " +
+		"Fv columns are not computed for TCR inputs."
+}
+
+receptorNotDetected := func() {
+	return "Receptor type not detected on the input dataset; defaulting to antibody labels. " +
+		"Use a MiXCR preset that emits the receptor annotation if this is a TCR dataset."
+}
+
+// R11c — single-domain antibody (VHH / nanobody) heuristic.
+vhh := func() {
+	return "Possible VHH/single-domain antibody input detected (heavy chain only; " +
+		"CDR-H3 length distribution consistent with VHH). IgG-calibrated CDR-H3 length " +
+		"thresholds (>15 aa elevated risk, >20 aa high risk) do not apply to VHH — " +
+		"disregard these thresholds for nanobody libraries."
+}
+
+export ll.toStrict({
+	partialChainMissingFullChain: partialChainMissingFullChain,
+	partialChainNoCdr3: partialChainNoCdr3,
+	noRecognizedColumns: noRecognizedColumns,
+	cdr3OnlyInput: cdr3OnlyInput,
+	gammaDeltaTcr: gammaDeltaTcr,
+	receptorNotDetected: receptorNotDetected,
+	vhh: vhh
+})

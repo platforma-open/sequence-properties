@@ -7,16 +7,27 @@
   "files": [],
   "type": "module",
   "scripts": {
-    "test": "vitest --passWithNoTests"
+    "test": "vitest --run --passWithNoTests",
+    "lint": "eslint .",
+    "type-check": "ts-builder type-check --target block-test"
   },
   "dependencies": {
-    "this-block": "workspace:@platforma-open/MiLaboratories.sequence-properties@*"
+    "this-block": "workspace:@platforma-open/MiLaboratories.sequence-properties@*",
+    "@platforma-open/MiLaboratories.sequence-properties.model": "workspace:*",
+    "@platforma-open/milaboratories.samples-and-data": "^1.17.1",
+    "@platforma-open/milaboratories.samples-and-data.model": "^2.8.0",
+    "@platforma-open/milaboratories.xsv-import.model": "^1.0.4",
+    "@platforma-open/milaboratories.mixcr-clonotyping-2": "^2.18.3",
+    "@platforma-open/milaboratories.mixcr-clonotyping-2.model": "^1.25.2",
+    "@platforma-sdk/model": "catalog:"
   },
   "devDependencies": {
-    "@platforma-sdk/test": "catalog:"
-  },
-  "peerDependencies": {
-    "typescript": "*",
-    "vitest": "*"
+    "@milaboratories/ts-builder": "catalog:",
+    "@milaboratories/ts-configs": "catalog:",
+    "@platforma-sdk/eslint-config": "catalog:",
+    "@platforma-sdk/test": "catalog:",
+    "eslint": "catalog:",
+    "vitest": "catalog:",
+    "typescript": "catalog:"
   }
 }

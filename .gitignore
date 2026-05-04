@@ -11,3 +11,18 @@ software/**/*.tgz
 .DS_Store
 .vscode/sftp.json
 test-dry-run.json
+
+# Python — uv-managed software packages under software/
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*.egg-info/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
