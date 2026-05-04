@@ -10,12 +10,20 @@ import {
   PlSlideModal,
   usePlDataTableSettingsV2,
 } from "@platforma-sdk/ui-vue";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { useApp } from "../app";
 
 const app = useApp();
 
 const logOpen = ref(false);
+const settingsOpen = ref(app.model.data.inputAnchor === undefined);
+
+watch(
+  () => app.model.outputs.isRunning,
+  (isRunning) => {
+    if (isRunning) settingsOpen.value = false;
+  },
+);
 
 const tableSettings = usePlDataTableSettingsV2({
   model: () => app.model.outputs.propertiesTable,
@@ -32,17 +40,13 @@ const tableSettings = usePlDataTableSettingsV2({
           <PlMaskIcon24 name="file-logs" />
         </template>
       </PlBtnGhost>
+      <PlBtnGhost @click.stop="() => (settingsOpen = true)">
+        Settings
+        <template #append>
+          <PlMaskIcon24 name="settings" />
+        </template>
+      </PlBtnGhost>
     </template>
-
-    <PlDropdownRef
-      v-model="app.model.data.inputAnchor"
-      :options="app.model.outputs.inputOptions"
-      label="Input dataset"
-    >
-      <template #tooltip>
-        Peptide extraction or MiXCR clonotyping output. Modality is auto-detected.
-      </template>
-    </PlDropdownRef>
 
     <PlAlert
       v-for="(message, idx) in app.model.outputs.info?.messages ?? []"
@@ -59,6 +63,21 @@ const tableSettings = usePlDataTableSettingsV2({
       show-export-button
     />
   </PlBlockPage>
+
+  <PlSlideModal v-model="settingsOpen" close-on-outside-click shadow>
+    <template #title>Settings</template>
+    <PlDropdownRef
+      v-model="app.model.data.inputAnchor"
+      :options="app.model.outputs.inputOptions"
+      label="Input dataset"
+      clearable
+      required
+    >
+      <template #tooltip>
+        Peptide extraction or MiXCR clonotyping output. Modality is auto-detected.
+      </template>
+    </PlDropdownRef>
+  </PlSlideModal>
 
   <PlSlideModal v-model="logOpen" width="80%">
     <template #title>Processing Log</template>

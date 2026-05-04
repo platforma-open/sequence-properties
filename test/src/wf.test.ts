@@ -97,7 +97,9 @@ describe('antibody/TCR coverage handling', () => {
   it.todo('TCR receptor never emits Fv columns regardless of coverage'); // R12, scTcrAbFullScenario
   it.todo('γδ TCR input emits the γδ-labels info message');
   it.todo('chain labels adapt to receptor while name + chain domain stay constant'); // R13
-  it.todo('missing receptor annotation defaults to IG with warning info message'); // R13b
+  it.todo('bulk MiXCR IGHeavy axis derives receptor=IG from pl7.app/vdj/chain, no R13b warning'); // SD-008, bulkIgHeavyScenario
+  it.todo('bulk MiXCR TCRAlpha axis derives receptor=TCRAB from pl7.app/vdj/chain, no R13b warning'); // SD-008, bulkTcrAlphaScenario
+  it.todo('R13b warning fires only when neither receptor nor recognised chain key is present'); // R13b post-SD-008
   it.todo('isScore annotation on the spec-mandated columns only'); // R14
   it.todo('rankingOrder=increasing only on hydrophobicity columns'); // R14
   it.todo('no defaultCutoff annotation anywhere in the output'); // R15
