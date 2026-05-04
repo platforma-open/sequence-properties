@@ -212,6 +212,108 @@ export function scTcrAbFullScenario() {
   };
 }
 
+/**
+ * Per-feature VDJ sequence column matching bulk MiXCR's emission: no
+ * `scClonotypeChain`, no `pl7.app/vdj/receptor`. Chain identity lives on
+ * the axis-domain `pl7.app/vdj/chain` key — SD-008 derives the receptor
+ * from there.
+ */
+function bulkVdjSequenceColumn(
+  column: string,
+  feature: Feature | 'FR4InFrame',
+): Spec['columns'][number] {
+  return {
+    column,
+    spec: {
+      name: 'pl7.app/vdj/sequence',
+      valueType: 'String',
+      domain: {
+        'pl7.app/alphabet': 'aminoacid',
+        'pl7.app/vdj/feature': feature,
+      },
+      annotations: {
+        'pl7.app/label': `${feature} aa`,
+      },
+    },
+  };
+}
+
+/** Common axes for bulk clonotypeKey-keyed scenarios. */
+function bulkAxes(chain: 'IGHeavy' | 'IGLight' | 'TCRAlpha' | 'TCRBeta' | 'TCRGamma' | 'TCRDelta'): Spec['axes'] {
+  return [
+    {
+      column: 'sampleId',
+      spec: { name: 'pl7.app/sampleId', type: 'String' as const },
+    },
+    {
+      column: 'clonotypeKey',
+      spec: {
+        name: 'pl7.app/vdj/clonotypeKey',
+        type: 'String' as const,
+        // Mirrors bulk MiXCR's emission: chain on the axis, no receptor key.
+        // SD-008 derives the receptor from this chain.
+        domain: {
+          'pl7.app/vdj/clonotypingRunId': 'synthetic-bulk-run',
+          'pl7.app/vdj/chain': chain,
+        },
+        annotations: { 'pl7.app/label': 'Clonotype ID' },
+      },
+    },
+  ];
+}
+
+/** Build the column spec list for a bulk scenario (single chain) with full coverage. */
+function bulkVdjColumnsFull(): Spec['columns'] {
+  // Same FR4InFrame normalisation as sc; bulk emits a single chain so no chain prefix.
+  const featuresOnDisk = ['FR1', 'CDR1', 'FR2', 'CDR2', 'FR3', 'CDR3', 'FR4InFrame'] as const;
+  const cols: Spec['columns'] = [
+    {
+      column: 'umiCount',
+      spec: {
+        name: 'pl7.app/vdj/uniqueMoleculeCount',
+        valueType: 'Long' as const,
+        annotations: {
+          ...ANCHOR_ANNOTATIONS,
+          'pl7.app/abundance/unit': 'umis',
+          'pl7.app/label': 'Number of UMIs',
+        },
+      },
+    },
+  ];
+  for (const f of featuresOnDisk) {
+    cols.push(bulkVdjSequenceColumn(f.replace('InFrame', ''), f));
+  }
+  return cols;
+}
+
+/** Bulk MiXCR IGHeavy, full coverage. SD-008 derives receptor=IG from the axis chain. */
+export function bulkIgHeavyScenario() {
+  return {
+    tsv: './assets/bulk-ig-heavy.tsv',
+    fileExt: 'tsv' as const,
+    spec: {
+      axes: bulkAxes('IGHeavy'),
+      columns: bulkVdjColumnsFull(),
+      storageFormat: 'Binary' as const,
+      partitionKeyLength: 0,
+    } satisfies Spec,
+  };
+}
+
+/** Bulk MiXCR TCRAlpha, full coverage. SD-008 derives receptor=TCRAB from the axis chain. */
+export function bulkTcrAlphaScenario() {
+  return {
+    tsv: './assets/bulk-tcr-alpha.tsv',
+    fileExt: 'tsv' as const,
+    spec: {
+      axes: bulkAxes('TCRAlpha'),
+      columns: bulkVdjColumnsFull(),
+      storageFormat: 'Binary' as const,
+      partitionKeyLength: 0,
+    } satisfies Spec,
+  };
+}
+
 /** Bogus axis name — drives the R1a panic path. */
 export function bogusAxisScenario() {
   return {
