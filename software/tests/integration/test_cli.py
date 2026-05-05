@@ -266,17 +266,37 @@ _ANTIBODY_COLUMNS = (
 _ANTIBODY_ROWS = [
     {
         "entity_key": "c1",
-        "A_FR1": "EVQLVES", "A_CDR1": "GFTFSSY", "A_FR2": "AMSWVRQ",
-        "A_CDR2": "ISGSGGS", "A_FR3": "TYYAESVKGRFTI", "A_CDR3": "CARDYW", "A_FR4": "WGQGTLV",
-        "B_FR1": "DIQMTQS", "B_CDR1": "QSISSY", "B_FR2": "LNWYQQK",
-        "B_CDR2": "AASSLQS", "B_FR3": "GVPSRFSGSG", "B_CDR3": "CQQYNS", "B_FR4": "FGQGTKV",
+        "A_FR1": "EVQLVES",
+        "A_CDR1": "GFTFSSY",
+        "A_FR2": "AMSWVRQ",
+        "A_CDR2": "ISGSGGS",
+        "A_FR3": "TYYAESVKGRFTI",
+        "A_CDR3": "CARDYW",
+        "A_FR4": "WGQGTLV",
+        "B_FR1": "DIQMTQS",
+        "B_CDR1": "QSISSY",
+        "B_FR2": "LNWYQQK",
+        "B_CDR2": "AASSLQS",
+        "B_FR3": "GVPSRFSGSG",
+        "B_CDR3": "CQQYNS",
+        "B_FR4": "FGQGTKV",
     },
     {
         "entity_key": "c2",
-        "A_FR1": "EVQLVES", "A_CDR1": "GFTFSSY", "A_FR2": "AMSWVRQ",
-        "A_CDR2": "ISGSGGS", "A_FR3": "TYYAESVKGRFTI", "A_CDR3": "CARGFW", "A_FR4": "WGQGTLV",
-        "B_FR1": "DIQMTQS", "B_CDR1": "QSISSY", "B_FR2": "LNWYQQK",
-        "B_CDR2": "AASSLQS", "B_FR3": "GVPSRFSGSG", "B_CDR3": "CQHFSS", "B_FR4": "FGQGTKV",
+        "A_FR1": "EVQLVES",
+        "A_CDR1": "GFTFSSY",
+        "A_FR2": "AMSWVRQ",
+        "A_CDR2": "ISGSGGS",
+        "A_FR3": "TYYAESVKGRFTI",
+        "A_CDR3": "CARGFW",
+        "A_FR4": "WGQGTLV",
+        "B_FR1": "DIQMTQS",
+        "B_CDR1": "QSISSY",
+        "B_FR2": "LNWYQQK",
+        "B_CDR2": "AASSLQS",
+        "B_FR3": "GVPSRFSGSG",
+        "B_CDR3": "CQHFSS",
+        "B_FR4": "FGQGTKV",
     },
 ]
 _ANTIBODY_PLAN = {
@@ -299,11 +319,16 @@ def _run_antibody(tmp_path: Path, suffix: str, rows: list[dict[str, str]]) -> Pa
     plan_json.write_text(json.dumps(_ANTIBODY_PLAN))
     rc = main(
         [
-            "--input", str(in_tsv),
-            "--plan", str(plan_json),
-            "--output", str(out_tsv),
-            "--aa-fraction", str(aa_tsv),
-            "--stats", str(stats_json),
+            "--input",
+            str(in_tsv),
+            "--plan",
+            str(plan_json),
+            "--output",
+            str(out_tsv),
+            "--aa-fraction",
+            str(aa_tsv),
+            "--stats",
+            str(stats_json),
         ]
     )
     assert rc == 0
