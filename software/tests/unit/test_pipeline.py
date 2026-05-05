@@ -67,12 +67,21 @@ class TestPeptideMode:
     @pytest.mark.parametrize(
         ("sequences", "expected_has_below"),
         [
-            (["ACDEFGHIKL", "AAAAAAAAAA", ""], True),
+            (["ACDEFGHIKL", "AAAAAAAAAA", "ACDEF"], True),
             (["ACDEFGHIKL", "AAAAAAAAAA"], False),
             (["ACDEF", "KNTLMAR", "MPTW"], True),
             (["AAAAAAAAA", "AAAAAAAAAA"], True),
+            (["ACDEFGHIKL", "", None], False),
+            (["XBZX"], False),
         ],
-        ids=["mixed-empty-and-above", "all-above", "all-below", "boundary-9-vs-10"],
+        ids=[
+            "mixed-short-and-above",
+            "all-above",
+            "all-below",
+            "boundary-9-vs-10",
+            "empty-and-null-skip",
+            "all-nonstandard-skip",
+        ],
     )
     def test_instability_floor_flag_tracks_na_rows(self, sequences: list[str], expected_has_below: bool):
         reads = pl.DataFrame({"entity_key": [f"p{i}" for i in range(len(sequences))], "sequence": sequences})
