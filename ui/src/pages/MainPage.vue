@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createPlDataTableStateV2, type PlRef } from "@platforma-sdk/model";
 import {
   PlAgDataTableV2,
   PlAlert,
@@ -24,6 +25,15 @@ watch(
     if (isRunning) settingsOpen.value = false;
   },
 );
+
+// Setter, not a watch on `inputAnchor`. The SDK replaces the `data`
+// object on server patches (other-client edits, app reopen); a watcher
+// would fire on that replacement and reset tableState the user did
+// not touch. The setter runs only on the user's gesture.
+function setInput(ref?: PlRef) {
+  app.model.data.inputAnchor = ref;
+  app.model.data.tableState = createPlDataTableStateV2();
+}
 
 const tableSettings = usePlDataTableSettingsV2({
   model: () => app.model.outputs.propertiesTable,
@@ -67,11 +77,12 @@ const tableSettings = usePlDataTableSettingsV2({
   <PlSlideModal v-model="settingsOpen" close-on-outside-click shadow>
     <template #title>Settings</template>
     <PlDropdownRef
-      v-model="app.model.data.inputAnchor"
+      :model-value="app.model.data.inputAnchor"
       :options="app.model.outputs.inputOptions"
       label="Input dataset"
       clearable
       required
+      @update:model-value="setInput"
     >
       <template #tooltip>
         Peptide extraction or MiXCR clonotyping output. Modality is auto-detected.
