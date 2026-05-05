@@ -140,6 +140,25 @@ def charge_at_ph(seq: str, ph: float, pka_set: PKaSet, include_cys: bool = True)
     return _ipc2_isoelectric_point(cleaned, pka_set, include_cys).charge_at_pH(ph)
 
 
+def charge_shift(
+    seq: str,
+    pka_set: PKaSet,
+    include_cys: bool = True,
+    ph_from: float = 7.4,
+    ph_to: float = 6.0,
+) -> float | None:
+    """ΔCharge = charge(seq, ph_from) − charge(seq, ph_to). Henderson-Hasselbalch
+    at both pH points using the same pKa set as `charge_at_ph`. Histidine
+    dominates the 7.4 → 6.0 window (~−0.46 per His). Returns None when either
+    endpoint is None (invalid sequence, no standard residues).
+    """
+    c_from = charge_at_ph(seq, ph_from, pka_set, include_cys)
+    c_to = charge_at_ph(seq, ph_to, pka_set, include_cys)
+    if c_from is None or c_to is None:
+        return None
+    return c_from - c_to
+
+
 def isoelectric_point(
     seq: str,
     pka_set: PKaSet,
@@ -289,6 +308,25 @@ def fv_charge(vh: str, vl: str, ph: float, pka_set: PKaSet) -> float | None:
     if c_vh is None or c_vl is None:
         return None
     return c_vh + c_vl
+
+
+def fv_charge_shift(
+    vh: str,
+    vl: str,
+    pka_set: PKaSet,
+    ph_from: float = 7.4,
+    ph_to: float = 6.0,
+) -> float | None:
+    """Fv ΔCharge = ΔCharge(VH) + ΔCharge(VL). Equivalent to
+    `(charge(VH, ph_from) + charge(VL, ph_from)) − (charge(VH, ph_to) +
+    charge(VL, ph_to))`. Both chains excluded-Cys per the full-chain rule.
+    Returns None if either chain is invalid.
+    """
+    s_vh = charge_shift(vh, pka_set, include_cys=False, ph_from=ph_from, ph_to=ph_to)
+    s_vl = charge_shift(vl, pka_set, include_cys=False, ph_from=ph_from, ph_to=ph_to)
+    if s_vh is None or s_vl is None:
+        return None
+    return s_vh + s_vl
 
 
 def fv_isoelectric_point(

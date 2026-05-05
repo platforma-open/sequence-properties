@@ -27,9 +27,11 @@ from properties import (
     aliphatic_index,
     aromaticity,
     charge_at_ph,
+    charge_shift,
     effective_length,
     extinction_coefficients,
     fv_charge,
+    fv_charge_shift,
     fv_extinction_coefficients,
     fv_isoelectric_point,
     fv_molecular_weight,
@@ -62,7 +64,7 @@ PH = 7.0  # All charge values computed at pH 7 (spec default).
 # The quantization is a *boundary* concern. Internal property functions
 # (`charge_at_ph`, `isoelectric_point`, etc.) keep full precision so golden-
 # value tests stay sharp. Only the pipeline's emitted DataFrame is rounded.
-CID_QUANTIZE_PREFIXES = ("charge_", "pi_")
+CID_QUANTIZE_PREFIXES = ("charge_", "chargeShift_", "pi_")
 CID_QUANTIZE_DECIMALS = 3
 
 
@@ -107,6 +109,7 @@ def run(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
 
 PEPTIDE_PROPERTY_COLUMNS = [
     "charge_peptide",
+    "chargeShift_peptide",
     "gravy_peptide",
     "mw_peptide",
     "pi_peptide",
@@ -125,6 +128,7 @@ def _compute_peptide_row(seq: str) -> dict[str, float | None]:
     eox, ered = extinction_coefficients(seq)
     return {
         "charge_peptide": charge_at_ph(seq, PH, IPC2_PEPTIDE, include_cys=True),
+        "chargeShift_peptide": charge_shift(seq, IPC2_PEPTIDE, include_cys=True),
         "gravy_peptide": gravy(seq),
         "mw_peptide": molecular_weight(seq),
         "pi_peptide": isoelectric_point(seq, IPC2_PEPTIDE, include_cys=True),
@@ -169,7 +173,7 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, pl.DataFrame]:
 # Antibody / TCR mode
 # ---------------------------------------------------------------------------
 
-CDR3_PROPS = ("charge", "gravy")
+CDR3_PROPS = ("charge", "chargeShift", "gravy")
 FULL_CHAIN_PROPS = (
     "charge",
     "pi",
@@ -181,17 +185,18 @@ FULL_CHAIN_PROPS = (
     "aliphatic",
     "aromaticity",
 )
-FV_PROPS = ("charge", "pi", "eox", "ered", "mw")
+FV_PROPS = ("charge", "chargeShift", "pi", "eox", "ered", "mw")
 
 REQUIRED_FEATURES = ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")
 
 
 def _compute_cdr3_row(cdr3: str) -> dict[str, float | None]:
-    """CDR3 charge + GRAVY. CDR3 uses the IPC 2.0 peptide pKa set with Cys
-    included as ionizable (per spec — CDR3 Cys treated as free thiol).
+    """CDR3 charge, ΔCharge, and GRAVY. CDR3 uses the IPC 2.0 peptide pKa set
+    with Cys included as ionizable (per spec — CDR3 Cys treated as free thiol).
     """
     return {
         "charge": charge_at_ph(cdr3, PH, IPC2_PEPTIDE, include_cys=True),
+        "chargeShift": charge_shift(cdr3, IPC2_PEPTIDE, include_cys=True),
         "gravy": gravy(cdr3),
     }
 
@@ -216,11 +221,13 @@ def _compute_full_chain_row(chain_seq: str) -> dict[str, float | None]:
 
 def _compute_fv_row(vh: str, vl: str) -> dict[str, float | None]:
     """Fv columns — IPC 2.0 protein set, Cys-excluded. pI uses the per-chain
-    sum of charge functions (NOT a concatenated string), per spec.
+    sum of charge functions (NOT a concatenated string), per spec. Fv
+    ΔCharge = ΔCharge(VH) + ΔCharge(VL).
     """
     eox, ered = fv_extinction_coefficients(vh, vl)
     return {
         "charge": fv_charge(vh, vl, PH, IPC2_PROTEIN),
+        "chargeShift": fv_charge_shift(vh, vl, IPC2_PROTEIN),
         "pi": fv_isoelectric_point(vh, vl, IPC2_PROTEIN),
         "eox": eox,
         "ered": ered,

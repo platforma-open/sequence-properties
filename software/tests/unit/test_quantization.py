@@ -104,7 +104,7 @@ class TestQuantizeHelper:
     # Sanity — module-level constants match what the docstring promises.
     def test_constants_track_documented_values(self):
         assert CID_QUANTIZE_DECIMALS == 3
-        assert CID_QUANTIZE_PREFIXES == ("charge_", "pi_")
+        assert CID_QUANTIZE_PREFIXES == ("charge_", "chargeShift_", "pi_")
 
 
 class TestPipelineQuantizationApplied:

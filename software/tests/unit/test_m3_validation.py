@@ -38,7 +38,9 @@ from pka_tables import IPC2_PEPTIDE, IPC2_PROTEIN, PKaSet
 from properties import (
     aliphatic_index,
     charge_at_ph,
+    charge_shift,
     fv_charge,
+    fv_charge_shift,
     fv_isoelectric_point,
     isoelectric_point,
 )
@@ -335,3 +337,68 @@ class TestAliphaticIndexClosedForm:
         impl = aliphatic_index(seq)
         ref = _closed_form_aliphatic(seq)
         assert impl == pytest.approx(ref, abs=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# 8. ΔCharge (pH 7.4 → 6.0) — manual two-point Henderson-Hasselbalch
+# ---------------------------------------------------------------------------
+
+
+def _ref_charge_shift(seq: str, pka_set: PKaSet, include_cys: bool, ph_from: float = 7.4, ph_to: float = 6.0) -> float:
+    """Reference ΔCharge via two `_ref_charge_hh` calls, no BioPython."""
+    return _ref_charge_hh(seq, ph_from, pka_set, include_cys) - _ref_charge_hh(seq, ph_to, pka_set, include_cys)
+
+
+# Diverse His counts: 0 (CARDYW, CSAQGGYPVT, CSRWGGDGFY, CARALTYYDYEFAY),
+# 1 (CARWHRLDFY, CQHRGGTPLD), 2 (CHQYHRSPT). Spans the pH-switching
+# dose response across the metric's primary driver.
+CHARGE_SHIFT_SEQUENCES = [
+    ("no_his", "CARDYW"),
+    ("one_his", "CARWHRLDFY"),
+    ("one_his_basic", "CQHRGGTPLD"),
+    ("two_his", "CHQYHRSPT"),
+    ("synthetic_neutral", "CSAQGGYPVT"),
+    ("trastuzumab_h3", "CSRWGGDGFY"),
+    ("cetuximab_h3", "CARALTYYDYEFAY"),
+]
+
+
+class TestChargeShiftManualHH:
+    """ΔCharge (pH 7.4 → 6.0) vs the textbook HH reference. >=5 sequences
+    spanning varied His content, IPC 2.0 peptide pKa, Cys included per the
+    CDR3 / peptide rule (free thiol).
+    """
+
+    @pytest.mark.parametrize("name,seq", CHARGE_SHIFT_SEQUENCES, ids=[s[0] for s in CHARGE_SHIFT_SEQUENCES])
+    def test_charge_shift_matches_reference(self, name: str, seq: str):
+        impl = charge_shift(seq, IPC2_PEPTIDE, include_cys=True)
+        ref = _ref_charge_shift(seq, IPC2_PEPTIDE, include_cys=True)
+        assert impl == pytest.approx(ref, abs=ABS_TOL)
+
+
+class TestFvChargeShiftAdditiveIdentity:
+    """Fv ΔCharge equals ΔCharge(VH) + ΔCharge(VL) on >=2 paired chains.
+    Uses IPC 2.0 protein pKa, Cys-excluded per the full-chain rule.
+    """
+
+    @pytest.mark.parametrize(
+        "name,vh,vl",
+        [
+            ("synthetic", VH_SYNTHETIC, VL_SYNTHETIC),
+            ("trastuzumab", VH_TRASTUZUMAB, VL_TRASTUZUMAB),
+        ],
+    )
+    def test_fv_equals_per_chain_sum(self, name: str, vh: str, vl: str):
+        s_fv = fv_charge_shift(vh, vl, IPC2_PROTEIN)
+        s_vh = charge_shift(vh, IPC2_PROTEIN, include_cys=False)
+        s_vl = charge_shift(vl, IPC2_PROTEIN, include_cys=False)
+        assert s_fv is not None and s_vh is not None and s_vl is not None
+        assert s_fv == pytest.approx(s_vh + s_vl, abs=ABS_TOL)
+        # And against a fresh manual two-point compute on the per-chain sums.
+        ref = (
+            _ref_charge_hh(vh, 7.4, IPC2_PROTEIN, include_cys=False)
+            + _ref_charge_hh(vl, 7.4, IPC2_PROTEIN, include_cys=False)
+            - _ref_charge_hh(vh, 6.0, IPC2_PROTEIN, include_cys=False)
+            - _ref_charge_hh(vl, 6.0, IPC2_PROTEIN, include_cys=False)
+        )
+        assert s_fv == pytest.approx(ref, abs=ABS_TOL)
