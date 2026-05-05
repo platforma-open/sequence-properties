@@ -24,22 +24,9 @@ from aa_tables import STANDARD_AAS
 from pka_tables import IPC2_PEPTIDE, IPC2_PROTEIN
 from properties import (
     INSTABILITY_MIN_LENGTH,
-    aa_fractions,
-    aliphatic_index,
-    aromaticity,
-    charge_at_ph,
-    charge_shift,
+    SequenceContext,
+    _bisect_charge_zero,
     effective_length,
-    extinction_coefficients,
-    fv_charge,
-    fv_charge_shift,
-    fv_extinction_coefficients,
-    fv_isoelectric_point,
-    fv_molecular_weight,
-    gravy,
-    instability_index,
-    isoelectric_point,
-    molecular_weight,
 )
 
 log = logging.getLogger(__name__)
@@ -121,48 +108,99 @@ PEPTIDE_PROPERTY_COLUMNS = [
 ]
 
 
+_NA_PEPTIDE_ROW: dict[str, float | None] = dict.fromkeys(PEPTIDE_PROPERTY_COLUMNS)
+
+
 def _compute_peptide_row(seq: str) -> dict[str, float | None]:
     """All 9 scalar properties for a single peptide. Cys is included as
     ionizable (free thiol assumption) — the IPC 2.0 peptide pKa set is used.
+
+    Uses one `SequenceContext` per sequence so `_prepare`, `ProteinAnalysis`,
+    and `IsoelectricPoint(IPC2_PEPTIDE, include_cys=True)` are constructed
+    exactly once and shared across all 10 property reads.
     """
-    eox, ered = extinction_coefficients(seq)
+    ctx = SequenceContext.from_seq(seq)
+    if ctx is None:
+        return dict(_NA_PEPTIDE_ROW)
+    eox, ered = ctx.extinction_coefficients()
     return {
-        "charge_peptide": charge_at_ph(seq, PH, IPC2_PEPTIDE, include_cys=True),
-        "chargeShift_peptide": charge_shift(seq, IPC2_PEPTIDE, include_cys=True),
-        "gravy_peptide": gravy(seq),
-        "mw_peptide": molecular_weight(seq),
-        "pi_peptide": isoelectric_point(seq, IPC2_PEPTIDE, include_cys=True),
+        "charge_peptide": ctx.charge_at_ph(PH, IPC2_PEPTIDE, include_cys=True),
+        "chargeShift_peptide": ctx.charge_shift(IPC2_PEPTIDE, include_cys=True),
+        "gravy_peptide": ctx.gravy(),
+        "mw_peptide": ctx.molecular_weight(),
+        "pi_peptide": ctx.isoelectric_point(IPC2_PEPTIDE, include_cys=True),
         "eox_peptide": eox,
         "ered_peptide": ered,
-        "instability_peptide": instability_index(seq),
-        "aliphatic_peptide": aliphatic_index(seq),
-        "aromaticity_peptide": aromaticity(seq),
+        "instability_peptide": ctx.instability_index(),
+        "aliphatic_peptide": ctx.aliphatic_index(),
+        "aromaticity_peptide": ctx.aromaticity(),
+    }
+
+
+def _compute_peptide_row_from_ctx(ctx: SequenceContext) -> dict[str, float | None]:
+    """Variant that takes a pre-built context — used when `run_peptide` already
+    constructed one to share with the AA-fraction pass.
+    """
+    eox, ered = ctx.extinction_coefficients()
+    return {
+        "charge_peptide": ctx.charge_at_ph(PH, IPC2_PEPTIDE, include_cys=True),
+        "chargeShift_peptide": ctx.charge_shift(IPC2_PEPTIDE, include_cys=True),
+        "gravy_peptide": ctx.gravy(),
+        "mw_peptide": ctx.molecular_weight(),
+        "pi_peptide": ctx.isoelectric_point(IPC2_PEPTIDE, include_cys=True),
+        "eox_peptide": eox,
+        "ered_peptide": ered,
+        "instability_peptide": ctx.instability_index(),
+        "aliphatic_peptide": ctx.aliphatic_index(),
+        "aromaticity_peptide": ctx.aromaticity(),
     }
 
 
 def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
-    """Compute peptide-mode outputs."""
+    """Compute peptide-mode outputs.
+
+    Builds one `SequenceContext` per sequence and reuses it for both the
+    properties row and the AA-fraction rows — so each sequence is `_prepare`d
+    once and BioPython objects are constructed once across all 11 reads.
+    Accumulates columnar arrays directly into a dict-of-lists (one allocation
+    per column, vs. one dict per row) and constructs the DataFrame from those.
+    """
     keys = reads["entity_key"].to_list()
     seqs = reads["sequence"].to_list()
+    n = len(seqs)
 
-    log.info("Computing peptide scalar properties (%d sequences)", len(seqs))
-    rows = [{"entity_key": k, **_compute_peptide_row(s)} for k, s in zip(keys, seqs)]
-    properties = pl.DataFrame(rows, schema={"entity_key": pl.Utf8, **{c: pl.Float64 for c in PEPTIDE_PROPERTY_COLUMNS}})
-
-    log.info("Computing AA fractions (%d sequences)", len(seqs))
-    aa_rows: list[dict[str, Any]] = []
+    log.info("Computing peptide properties + AA fractions (%d sequences)", n)
+    prop_cols: dict[str, list[Any]] = {"entity_key": [], **{c: [] for c in PEPTIDE_PROPERTY_COLUMNS}}
+    aa_entity: list[str] = []
+    aa_amino: list[str] = []
+    aa_value: list[float | None] = []
     for k, s in zip(keys, seqs):
-        fractions = aa_fractions(s)
-        if fractions is None:
+        prop_cols["entity_key"].append(k)
+        ctx = SequenceContext.from_seq(s)
+        if ctx is None:
+            for c in PEPTIDE_PROPERTY_COLUMNS:
+                prop_cols[c].append(None)
             # Emit one row per std AA with NA value, so the 2-axis PColumn
             # keeps a uniform shape across entities.
             for aa in STANDARD_AAS:
-                aa_rows.append({"entity_key": k, "aminoAcid": aa, "value": None})
+                aa_entity.append(k)
+                aa_amino.append(aa)
+                aa_value.append(None)
         else:
+            row = _compute_peptide_row_from_ctx(ctx)
+            for c in PEPTIDE_PROPERTY_COLUMNS:
+                prop_cols[c].append(row[c])
+            fractions = ctx.aa_fractions()
             for aa in STANDARD_AAS:
-                aa_rows.append({"entity_key": k, "aminoAcid": aa, "value": fractions[aa]})
+                aa_entity.append(k)
+                aa_amino.append(aa)
+                aa_value.append(fractions[aa])
+    properties = pl.DataFrame(
+        prop_cols,
+        schema={"entity_key": pl.Utf8, **{c: pl.Float64 for c in PEPTIDE_PROPERTY_COLUMNS}},
+    )
     aa_fraction = pl.DataFrame(
-        aa_rows,
+        {"entity_key": aa_entity, "aminoAcid": aa_amino, "value": aa_value},
         schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64},
     )
 
@@ -204,32 +242,47 @@ FV_PROPS = ("charge", "chargeShift", "pi", "eox", "ered", "mw")
 REQUIRED_FEATURES = ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")
 
 
+_NA_CDR3_ROW: dict[str, float | None] = dict.fromkeys(CDR3_PROPS)
+_NA_FULL_CHAIN_ROW: dict[str, float | None] = dict.fromkeys(FULL_CHAIN_PROPS)
+_NA_FV_ROW: dict[str, float | None] = dict.fromkeys(FV_PROPS)
+
+
 def _compute_cdr3_row(cdr3: str) -> dict[str, float | None]:
     """CDR3 charge, ΔCharge, and GRAVY. CDR3 uses the IPC 2.0 peptide pKa set
     with Cys included as ionizable (per spec — CDR3 Cys treated as free thiol).
     """
+    ctx = SequenceContext.from_seq(cdr3)
+    if ctx is None:
+        return dict(_NA_CDR3_ROW)
     return {
-        "charge": charge_at_ph(cdr3, PH, IPC2_PEPTIDE, include_cys=True),
-        "chargeShift": charge_shift(cdr3, IPC2_PEPTIDE, include_cys=True),
-        "gravy": gravy(cdr3),
+        "charge": ctx.charge_at_ph(PH, IPC2_PEPTIDE, include_cys=True),
+        "chargeShift": ctx.charge_shift(IPC2_PEPTIDE, include_cys=True),
+        "gravy": ctx.gravy(),
     }
 
 
 def _compute_full_chain_row(chain_seq: str) -> dict[str, float | None]:
     """Full-chain (VH / VL etc.) — protein pKa set, Cys excluded from
-    ionisation (assumed disulfide-bonded).
+    ionisation (assumed disulfide-bonded). One context, one ProteinAnalysis,
+    one IsoelectricPoint shared across all 9 reads.
     """
-    eox, ered = extinction_coefficients(chain_seq)
+    return _compute_full_chain_row_from_ctx(SequenceContext.from_seq(chain_seq))
+
+
+def _compute_full_chain_row_from_ctx(ctx: SequenceContext | None) -> dict[str, float | None]:
+    if ctx is None:
+        return dict(_NA_FULL_CHAIN_ROW)
+    eox, ered = ctx.extinction_coefficients()
     return {
-        "charge": charge_at_ph(chain_seq, PH, IPC2_PROTEIN, include_cys=False),
-        "pi": isoelectric_point(chain_seq, IPC2_PROTEIN, include_cys=False),
-        "gravy": gravy(chain_seq),
-        "mw": molecular_weight(chain_seq),
+        "charge": ctx.charge_at_ph(PH, IPC2_PROTEIN, include_cys=False),
+        "pi": ctx.isoelectric_point(IPC2_PROTEIN, include_cys=False),
+        "gravy": ctx.gravy(),
+        "mw": ctx.molecular_weight(),
         "eox": eox,
         "ered": ered,
-        "instability": instability_index(chain_seq),
-        "aliphatic": aliphatic_index(chain_seq),
-        "aromaticity": aromaticity(chain_seq),
+        "instability": ctx.instability_index(),
+        "aliphatic": ctx.aliphatic_index(),
+        "aromaticity": ctx.aromaticity(),
     }
 
 
@@ -237,15 +290,31 @@ def _compute_fv_row(vh: str, vl: str) -> dict[str, float | None]:
     """Fv columns — IPC 2.0 protein set, Cys-excluded. pI uses the per-chain
     sum of charge functions (NOT a concatenated string), per spec. Fv
     ΔCharge = ΔCharge(VH) + ΔCharge(VL).
+
+    Builds one context per chain so the chain-level full-chain pass and the
+    Fv pass share their `IsoelectricPoint(IPC2_PROTEIN, include_cys=False)` —
+    the same IP serves both `charge_at_ph(7.0)` and the bisection here.
     """
-    eox, ered = fv_extinction_coefficients(vh, vl)
+    return _compute_fv_row_from_ctx(SequenceContext.from_seq(vh), SequenceContext.from_seq(vl))
+
+
+def _compute_fv_row_from_ctx(
+    vh_ctx: SequenceContext | None,
+    vl_ctx: SequenceContext | None,
+) -> dict[str, float | None]:
+    if vh_ctx is None or vl_ctx is None:
+        return dict(_NA_FV_ROW)
+    ox_vh, red_vh = vh_ctx.extinction_coefficients()
+    ox_vl, red_vl = vl_ctx.extinction_coefficients()
+    fn_vh = vh_ctx.isoelectric(IPC2_PROTEIN, include_cys=False).charge_at_pH
+    fn_vl = vl_ctx.isoelectric(IPC2_PROTEIN, include_cys=False).charge_at_pH
     return {
-        "charge": fv_charge(vh, vl, PH, IPC2_PROTEIN),
-        "chargeShift": fv_charge_shift(vh, vl, IPC2_PROTEIN),
-        "pi": fv_isoelectric_point(vh, vl, IPC2_PROTEIN),
-        "eox": eox,
-        "ered": ered,
-        "mw": fv_molecular_weight(vh, vl),
+        "charge": fn_vh(PH) + fn_vl(PH),
+        "chargeShift": (fn_vh(7.4) - fn_vh(6.0)) + (fn_vl(7.4) - fn_vl(6.0)),
+        "pi": _bisect_charge_zero(lambda ph: fn_vh(ph) + fn_vl(ph)),
+        "eox": ox_vh + ox_vl,
+        "ered": red_vh + red_vl,
+        "mw": vh_ctx.molecular_weight() + vl_ctx.molecular_weight(),
     }
 
 
@@ -285,34 +354,35 @@ def _compute_row_for(record: dict[str, Any], plan: dict[str, Any]) -> dict[str, 
     """Build the output row for one input record. The set of populated
     columns matches `_planned_output_columns(plan)` exactly — both are
     driven by the same plan keys and shared property tuples.
+
+    For each chain, the reconstructed full-chain context is held and reused
+    by the Fv pass below, so VH/VL `IsoelectricPoint(IPC2_PROTEIN, False)` is
+    constructed once per clone instead of twice.
     """
     out: dict[str, Any] = {"entity_key": record["entity_key"]}
 
     # CDR3 per chain — empty cell ⇒ NA for this clone, not for the column.
     for ch in plan.get("chains", []):
-        cdr3 = record.get(f"{ch}_CDR3") or ""
-        cdr3_props = _compute_cdr3_row(cdr3) if cdr3 else dict.fromkeys(CDR3_PROPS)
+        cdr3_props = _compute_cdr3_row(record.get(f"{ch}_CDR3") or "")
         for p in CDR3_PROPS:
             out[f"{p}_{ch}_CDR3"] = cdr3_props[p]
 
     # Full chain — reconstruct then compute. NA per-clone if any of the
-    # seven regions is empty for that clone.
-    reconstructed: dict[str, str | None] = {}
+    # seven regions is empty for that clone. Cache contexts for Fv reuse.
+    chain_ctx: dict[str, SequenceContext | None] = {}
     for ch in plan.get("fullChains", []):
-        reconstructed[ch] = _reconstruct_chain(record, ch)
-        full_props = (
-            _compute_full_chain_row(reconstructed[ch])
-            if reconstructed[ch] is not None
-            else dict.fromkeys(FULL_CHAIN_PROPS)
-        )
+        reconstructed = _reconstruct_chain(record, ch)
+        ctx = SequenceContext.from_seq(reconstructed) if reconstructed is not None else None
+        chain_ctx[ch] = ctx
+        full_props = _compute_full_chain_row_from_ctx(ctx)
         for p in FULL_CHAIN_PROPS:
             out[f"{p}_{ch}_VDJRegion"] = full_props[p]
 
     # Fv — only when both VH and VL fully reconstructed for this clone.
+    # Reuses the per-chain contexts from the full-chain pass above so the
+    # IPC2_PROTEIN/include_cys=False IsoelectricPoint is shared.
     if plan.get("hasFv"):
-        vh = reconstructed.get("A")
-        vl = reconstructed.get("B")
-        fv = _compute_fv_row(vh, vl) if vh and vl else dict.fromkeys(FV_PROPS)
+        fv = _compute_fv_row_from_ctx(chain_ctx.get("A"), chain_ctx.get("B"))
         for p in FV_PROPS:
             out[f"{p}_Fv"] = fv[p]
 
@@ -351,10 +421,15 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
         log.info("Reconstructing full chains %s and computing full-chain properties", list(full_chains))
     if plan.get("hasFv"):
         log.info("Computing Fv properties (paired VH+VL)")
-    rows = [_compute_row_for(record, plan) for record in reads.iter_rows(named=True)]
     out_cols = _planned_output_columns(plan)
+    columns: dict[str, list[Any]] = {"entity_key": [], **{c: [] for c in out_cols}}
+    for record in reads.iter_rows(named=True):
+        row = _compute_row_for(record, plan)
+        columns["entity_key"].append(row["entity_key"])
+        for c in out_cols:
+            columns[c].append(row[c])
     schema = {"entity_key": pl.Utf8, **{c: pl.Float64 for c in out_cols}}
-    properties = pl.DataFrame(rows, schema=schema)
+    properties = pl.DataFrame(columns, schema=schema)
     aa_fraction = pl.DataFrame(schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64})
     stats = {"medianCdr3Length": _median_cdr3_length_by_chain(reads, chains)}
     return {
