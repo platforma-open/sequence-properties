@@ -14,6 +14,17 @@ messages := import(":messages")
 
 self.defineOutputs("propertiesPf", "exportPframe", "info")
 
+// ΔCharge (pH 7.4 → 6.0) endpoints — fixed in v1 per spec; schema accepts
+// additional pH pairs without breaking existing column identities.
+CHARGE_SHIFT_PH_FROM := "7.4"
+CHARGE_SHIFT_PH_TO := "6.0"
+
+// Spec R6b — same description on every chargeShift column (peptide / CDR3 / Fv).
+// Trimmed to ~30 words for the column-header tooltip; PlAgDataTableV2 clips the
+// top edge against the page header. Magnitude rule and scope-exclusion caveats
+// live in pcolumn-spec.md / the spec, not in the tooltip.
+CHARGE_SHIFT_DESC := "Net charge change from pH 7.4 (blood) to pH 6.0 (endosome). Negative values mean the molecule gains positive charge on acidification — the productive direction for histidine-driven pH switching. Histidine dominates (~−0.46 per His)."
+
 // Receptor + chain → human label fragments (CDR3 / full-chain).
 // Spec R13a: PColumn name and chain domain are unchanged; only the label varies.
 labelFragments := func(receptor, chain) {
@@ -81,6 +92,13 @@ self.body(func(args) {
 		}
 	}
 
+	// R9 — Instability Index is NA for peptides shorter than 10 aa. Surface a
+	// banner in peptide mode whenever any row falls below the floor so the
+	// user understands why the Instability Index column is blank.
+	if mode == "peptide" && stats.hasPeptideBelowInstabilityFloor == true {
+		infoMessages += [messages.peptidesShortInstability()]
+	}
+
 	infoBlob := smart.createValueResource(constants.RTYPE_JSON, canonical.encode({
 		mode: mode,
 		receptor: receptor,
@@ -104,6 +122,18 @@ self.body(func(args) {
 				"pl7.app/description": "Net charge at pH 7 (Henderson-Hasselbalch, IPC 2.0 peptide pKa set). Positive = net basic (Arg, Lys, His dominate); negative = net acidic (Asp, Glu dominate). No universal preferred direction.",
 				"pl7.app/table/visibility": "default",
 				"pl7.app/table/orderPriority": "70000"
+			})]
+
+		columns += [makeCol("chargeShift_peptide", "pl7.app/chargeShift", "Double",
+			"Peptide ΔCharge (pH 7.4 → 6.0)", {
+				"pl7.app/feature": "peptide",
+				"pl7.app/pH/from": CHARGE_SHIFT_PH_FROM,
+				"pl7.app/pH/to": CHARGE_SHIFT_PH_TO
+			}, {
+				"pl7.app/format": ".2f",
+				"pl7.app/description": CHARGE_SHIFT_DESC,
+				"pl7.app/table/visibility": "default",
+				"pl7.app/table/orderPriority": "69950"
 			})]
 
 		columns += [makeCol("gravy_peptide", "pl7.app/hydrophobicity", "Double",
@@ -206,6 +236,18 @@ self.body(func(args) {
 					"pl7.app/table/visibility": "default",
 					"pl7.app/table/orderPriority": string(chargeOrder)
 				})]
+			columns += [makeCol("chargeShift_" + chain + "_CDR3", "pl7.app/chargeShift", "Double",
+				frag.cdr3 + " ΔCharge (pH 7.4 → 6.0)", {
+					"pl7.app/feature": "CDR3",
+					"pl7.app/vdj/scClonotypeChain": chain,
+					"pl7.app/pH/from": CHARGE_SHIFT_PH_FROM,
+					"pl7.app/pH/to": CHARGE_SHIFT_PH_TO
+				}, {
+					"pl7.app/format": ".2f",
+					"pl7.app/description": CHARGE_SHIFT_DESC,
+					"pl7.app/table/visibility": "default",
+					"pl7.app/table/orderPriority": string(chargeOrder - 50)
+				})]
 			columns += [makeCol("gravy_" + chain + "_CDR3", "pl7.app/hydrophobicity", "Double",
 				frag.cdr3 + " Hydrophobicity (GRAVY)", cdr3Dom, {
 					"pl7.app/format": ".3f",
@@ -307,6 +349,17 @@ self.body(func(args) {
 					"pl7.app/isScore": "true",
 					"pl7.app/table/visibility": "default",
 					"pl7.app/table/orderPriority": "65100"
+				})]
+			columns += [makeCol("chargeShift_Fv", "pl7.app/chargeShift", "Double",
+				"Fv ΔCharge (pH 7.4 → 6.0)", {
+					"pl7.app/feature": "Fv",
+					"pl7.app/pH/from": CHARGE_SHIFT_PH_FROM,
+					"pl7.app/pH/to": CHARGE_SHIFT_PH_TO
+				}, {
+					"pl7.app/format": ".2f",
+					"pl7.app/description": CHARGE_SHIFT_DESC,
+					"pl7.app/table/visibility": "default",
+					"pl7.app/table/orderPriority": "65050"
 				})]
 			columns += [makeCol("pi_Fv", "pl7.app/isoelectricPoint", "Double",
 				"Fv Isoelectric Point (pI)", fvDom, {
