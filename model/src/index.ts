@@ -1,9 +1,18 @@
-import type { ColumnSource, InferOutputsType } from "@platforma-sdk/model";
+import type {
+  ColumnSource,
+  InferOutputsType,
+  PColumnIdAndSpec,
+  PColumnSpec,
+  PFrameHandle,
+} from "@platforma-sdk/model";
 import {
   Annotation,
   ArrayColumnProvider,
   BlockModelV3,
   createPlDataTableV3,
+  getRelatedColumns,
+  isHiddenFromGraphColumn,
+  isHiddenFromUIColumn,
 } from "@platforma-sdk/model";
 import { blockDataModel } from "./dataModel";
 import type { BlockArgs, WorkflowInfo } from "./types";
@@ -138,9 +147,32 @@ export const platforma = BlockModelV3.create(blockDataModel)
       },
     });
   })
+  .outputWithStatus("propertiesPfHandle", (ctx): PFrameHandle | undefined => {
+    const pCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
+    if (pCols === undefined) return undefined;
+    // `createPFrameForGraphs` pulls every result-pool column compatible with
+    // our axes — including `exports.properties`, the blockId-stamped variant
+    // we emit for Lead Selection. Same name, same spec, so the axis dropdowns
+    // show "CDR-H3 Net Charge / IG" twice. Drop self-trace to dedupe; same
+    // predicate as `propertiesTable`.
+    const suitableSpec = (spec: PColumnSpec) =>
+      !isHiddenFromUIColumn(spec) &&
+      !isHiddenFromGraphColumn(spec) &&
+      !spec.annotations?.[Annotation.Trace]?.includes("milaboratories.sequence-properties");
+    return ctx.createPFrame(getRelatedColumns(ctx, { columns: pCols, predicate: suitableSpec }));
+  })
+  .output("propertiesPfCols", (ctx): PColumnIdAndSpec[] | undefined => {
+    const pCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
+    if (pCols === undefined) return undefined;
+    return pCols.map((c) => ({ columnId: c.id, spec: c.spec }) satisfies PColumnIdAndSpec);
+  })
   .title(() => "Sequence Properties")
   .subtitle((ctx) => ctx.data.defaultBlockLabel ?? "")
-  .sections(() => [{ type: "link" as const, href: "/" as const, label: "Main" }])
+  .sections(() => [
+    { type: "link" as const, href: "/" as const, label: "Properties" },
+    { type: "link" as const, href: "/scatter" as const, label: "Scatterplot" },
+    { type: "link" as const, href: "/histogram" as const, label: "Histogram" },
+  ])
   .done();
 
 export type BlockOutputs = InferOutputsType<typeof platforma>;
