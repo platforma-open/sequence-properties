@@ -20,9 +20,10 @@ CHARGE_SHIFT_PH_FROM := "7.4"
 CHARGE_SHIFT_PH_TO := "6.0"
 
 // Spec R6b — same description on every chargeShift column (peptide / CDR3 / Fv).
-// Wording tightened from the verbatim spec R6b text (~110 words → ~70) for tooltip
-// readability; substance unchanged.
-CHARGE_SHIFT_DESC := "Net charge change from pH 7.4 (blood) to pH 6.0 (endosome). Negative values mean the molecule gains positive charge on acidification — the productive direction for histidine-driven pH switching. Histidine dominates (~−0.46 per His; pKa ~6.0 sits in the window); Asp, Glu, Lys, Arg do not titrate here. Small |ΔCharge| → no histidine-driven switching capacity; large |ΔCharge| → switching capacity, pending structural confirmation that the titrating residues sit at the binding interface. Excludes Asp/Glu-driven switching (e.g., pHLIP-class peptides)."
+// Trimmed to ~30 words for the column-header tooltip; PlAgDataTableV2 clips the
+// top edge against the page header. Magnitude rule and scope-exclusion caveats
+// live in pcolumn-spec.md / the spec, not in the tooltip.
+CHARGE_SHIFT_DESC := "Net charge change from pH 7.4 (blood) to pH 6.0 (endosome). Negative values mean the molecule gains positive charge on acidification — the productive direction for histidine-driven pH switching. Histidine dominates (~−0.46 per His)."
 
 // Receptor + chain → human label fragments (CDR3 / full-chain).
 // Spec R13a: PColumn name and chain domain are unchanged; only the label varies.
