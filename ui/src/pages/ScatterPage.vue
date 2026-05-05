@@ -48,6 +48,7 @@ const defaultOptions = computed((): PredefinedGraphOption<"scatterplot">[] | nul
       chart-type="scatterplot"
       :p-frame="app.model.outputs.propertiesPfHandle"
       :default-options="defaultOptions"
+      :default-palette="{ categorical: 'bright' }"
       :data-column-predicate="dataColumnPredicate"
       :status-text="{
         noPframe: { title: 'Select an input dataset on the Main tab to plot.' },
