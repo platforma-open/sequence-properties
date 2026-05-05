@@ -2,7 +2,6 @@ import type {
   ColumnSource,
   InferOutputsType,
   PColumnIdAndSpec,
-  PColumnSpec,
   PFrameHandle,
 } from "@platforma-sdk/model";
 import {
@@ -10,9 +9,6 @@ import {
   ArrayColumnProvider,
   BlockModelV3,
   createPlDataTableV3,
-  getRelatedColumns,
-  isHiddenFromGraphColumn,
-  isHiddenFromUIColumn,
 } from "@platforma-sdk/model";
 import { blockDataModel } from "./dataModel";
 import type { BlockArgs, WorkflowInfo } from "./types";
@@ -150,16 +146,13 @@ export const platforma = BlockModelV3.create(blockDataModel)
   .outputWithStatus("propertiesPfHandle", (ctx): PFrameHandle | undefined => {
     const pCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
     if (pCols === undefined) return undefined;
-    // `createPFrameForGraphs` pulls every result-pool column compatible with
-    // our axes — including `exports.properties`, the blockId-stamped variant
-    // we emit for Lead Selection. Same name, same spec, so the axis dropdowns
-    // show "CDR-H3 Net Charge / IG" twice. Drop self-trace to dedupe; same
-    // predicate as `propertiesTable`.
-    const suitableSpec = (spec: PColumnSpec) =>
-      !isHiddenFromUIColumn(spec) &&
-      !isHiddenFromGraphColumn(spec) &&
-      !spec.annotations?.[Annotation.Trace]?.includes("milaboratories.sequence-properties");
-    return ctx.createPFrame(getRelatedColumns(ctx, { columns: pCols, predicate: suitableSpec }));
+    // Build the pframe from this block's own columns only. The earlier
+    // `createPFrameForGraphs` path walked the result pool and pulled in
+    // `exports.properties` — the blockId-stamped variant we emit for Lead
+    // Selection — so axis dropdowns showed every property twice. We don't
+    // need pool metadata for the scatter/histogram pickers; sample-level
+    // grouping is a separate concern tracked under R18a follow-up.
+    return ctx.createPFrame(pCols);
   })
   .output("propertiesPfCols", (ctx): PColumnIdAndSpec[] | undefined => {
     const pCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
