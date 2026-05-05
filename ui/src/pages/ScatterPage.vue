@@ -26,16 +26,13 @@ const defaultOptions = computed((): PredefinedGraphOption<"scatterplot">[] | nul
   const y = defY ?? (scalars[1] === defX ? scalars[0] : scalars[1]);
   if (!x || !y || x === y) return null;
 
-  // Default grouping (point colour) = the entity-key axis. Property columns
-  // are 1-axis, so axesSpec[0] is the entity key — peptide variantKey for
-  // peptide mode, cloneId / clonotypeKey / scClonotypeKey for the various
-  // antibody/TCR modes. Each entity gets its own colour out of the box.
-  const groupingAxis = x.axesSpec[0];
-
+  // No default grouping. Grouping by the entity-key axis assigns one colour
+  // per entity — thousands of categorical groups explode the palette,
+  // legend, and render path on real datasets. The picker still exposes
+  // sample-axis and entity-axis meta cols; we leave the choice to the user.
   return [
     { inputName: "x", selectedSource: x },
     { inputName: "y", selectedSource: y },
-    { inputName: "grouping", selectedSource: groupingAxis },
   ];
 });
 </script>
