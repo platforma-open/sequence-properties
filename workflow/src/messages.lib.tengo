@@ -47,6 +47,12 @@ vhh := func() {
 		"disregard these thresholds for nanobody libraries."
 }
 
+// R9 — Guruprasad instability index is undefined for sequences shorter than
+// 10 residues; emitted in peptide mode whenever any peptide falls below the floor.
+peptidesShortInstability := func() {
+	return "Instability Index applies only to peptides ≥10 aa; shorter peptides show blank values."
+}
+
 export ll.toStrict({
 	partialChainMissingFullChain: partialChainMissingFullChain,
 	partialChainNoCdr3: partialChainNoCdr3,
@@ -54,5 +60,6 @@ export ll.toStrict({
 	cdr3OnlyInput: cdr3OnlyInput,
 	gammaDeltaTcr: gammaDeltaTcr,
 	receptorNotDetected: receptorNotDetected,
-	vhh: vhh
+	vhh: vhh,
+	peptidesShortInstability: peptidesShortInstability
 })

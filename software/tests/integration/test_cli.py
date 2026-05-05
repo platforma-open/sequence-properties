@@ -254,6 +254,102 @@ def test_byte_changes_when_input_changes(tmp_path: Path):
     assert _sha256(out_a) != _sha256(out_b)
 
 
+# Antibody chain-mode byte-stability — exercises the full _compute_row_for path
+# (per-chain CDR3, full-chain reconstruction, Fv) which the peptide tests above
+# don't touch. Guards refactors of `_compute_*_row` and `_compute_row_for` against
+# silent CID drift.
+_ANTIBODY_COLUMNS = (
+    ["entity_key"]
+    + [f"A_{f}" for f in ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")]
+    + [f"B_{f}" for f in ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")]
+)
+_ANTIBODY_ROWS = [
+    {
+        "entity_key": "c1",
+        "A_FR1": "EVQLVES",
+        "A_CDR1": "GFTFSSY",
+        "A_FR2": "AMSWVRQ",
+        "A_CDR2": "ISGSGGS",
+        "A_FR3": "TYYAESVKGRFTI",
+        "A_CDR3": "CARDYW",
+        "A_FR4": "WGQGTLV",
+        "B_FR1": "DIQMTQS",
+        "B_CDR1": "QSISSY",
+        "B_FR2": "LNWYQQK",
+        "B_CDR2": "AASSLQS",
+        "B_FR3": "GVPSRFSGSG",
+        "B_CDR3": "CQQYNS",
+        "B_FR4": "FGQGTKV",
+    },
+    {
+        "entity_key": "c2",
+        "A_FR1": "EVQLVES",
+        "A_CDR1": "GFTFSSY",
+        "A_FR2": "AMSWVRQ",
+        "A_CDR2": "ISGSGGS",
+        "A_FR3": "TYYAESVKGRFTI",
+        "A_CDR3": "CARGFW",
+        "A_FR4": "WGQGTLV",
+        "B_FR1": "DIQMTQS",
+        "B_CDR1": "QSISSY",
+        "B_FR2": "LNWYQQK",
+        "B_CDR2": "AASSLQS",
+        "B_FR3": "GVPSRFSGSG",
+        "B_CDR3": "CQHFSS",
+        "B_FR4": "FGQGTKV",
+    },
+]
+_ANTIBODY_PLAN = {
+    "mode": "antibody_tcr_legacy_bulk",
+    "receptor": "IG",
+    "chains": ["A", "B"],
+    "fullChains": ["A", "B"],
+    "hasFv": True,
+}
+
+
+def _run_antibody(tmp_path: Path, suffix: str, rows: list[dict[str, str]]) -> Path:
+    """Run the CLI in antibody mode, returning the properties.tsv path."""
+    in_tsv = tmp_path / f"input{suffix}.tsv"
+    plan_json = tmp_path / f"plan{suffix}.json"
+    out_tsv = tmp_path / f"out{suffix}.tsv"
+    aa_tsv = tmp_path / f"aa{suffix}.tsv"
+    stats_json = tmp_path / f"stats{suffix}.json"
+    _write_tsv(in_tsv, rows, _ANTIBODY_COLUMNS)
+    plan_json.write_text(json.dumps(_ANTIBODY_PLAN))
+    rc = main(
+        [
+            "--input",
+            str(in_tsv),
+            "--plan",
+            str(plan_json),
+            "--output",
+            str(out_tsv),
+            "--aa-fraction",
+            str(aa_tsv),
+            "--stats",
+            str(stats_json),
+        ]
+    )
+    assert rc == 0
+    return out_tsv
+
+
+# Same input, two runs → same bytes (chain mode). Catches FP drift in the
+# CDR3 / full-chain / Fv property paths that peptide-mode tests don't exercise.
+def test_byte_stable_across_two_runs_antibody(tmp_path: Path):
+    out_a = _run_antibody(tmp_path, "_a", _ANTIBODY_ROWS)
+    out_b = _run_antibody(tmp_path, "_b", _ANTIBODY_ROWS)
+    assert _sha256(out_a) == _sha256(out_b)
+
+
+# Reverse the input row order; sort_keys must canonicalise so bytes match.
+def test_byte_stable_under_row_permutation_antibody(tmp_path: Path):
+    out_sorted = _run_antibody(tmp_path, "_sorted", _ANTIBODY_ROWS)
+    out_shuffled = _run_antibody(tmp_path, "_shuffled", list(reversed(_ANTIBODY_ROWS)))
+    assert _sha256(out_sorted) == _sha256(out_shuffled)
+
+
 # ---------------------------------------------------------------------------
 # CLI logging — pipeline milestones reach stderr so the workflow log stream
 # captures them and the UI surfaces them via PlLogView.

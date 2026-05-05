@@ -23,10 +23,12 @@ from properties import (
     aliphatic_index,
     aromaticity,
     charge_at_ph,
+    charge_shift,
     clean_sequence,
     effective_length,
     extinction_coefficients,
     fv_charge,
+    fv_charge_shift,
     fv_extinction_coefficients,
     fv_isoelectric_point,
     fv_molecular_weight,
@@ -212,6 +214,96 @@ class TestChargeAtPh:
         diff = c_without - c_with
         expected = 1.0 / (1.0 + 10.0 ** (IPC2_PEPTIDE.side_chain["C"] - 7.0))
         assert diff == pytest.approx(expected, abs=1e-9)
+
+
+class TestChargeShift:
+    """ΔCharge (pH 7.4 → 6.0) — captures pH-switching capacity, dominated by His.
+
+    All tests use IPC 2.0 sets. Histidine pKa ~6.0 sits inside the window;
+    Asp / Glu / Lys / Arg are far outside and contribute ~0.
+    """
+
+    # Identity: charge_shift = charge(ph_from) − charge(ph_to). Property of the
+    # implementation that should hold for any sequence, regardless of His count.
+    @pytest.mark.parametrize("seq", ["ACDEFGHIK", "RRRR", "DDDD", "PEPTIDE", "MAGICK"])
+    def test_matches_two_point_subtraction(self, seq: str):
+        ds = charge_shift(seq, IPC2_PEPTIDE, include_cys=True)
+        c_from = charge_at_ph(seq, 7.4, IPC2_PEPTIDE, include_cys=True)
+        c_to = charge_at_ph(seq, 6.0, IPC2_PEPTIDE, include_cys=True)
+        assert ds is not None and c_from is not None and c_to is not None
+        assert ds == pytest.approx(c_from - c_to, abs=1e-9)
+
+    # No His and no other titrators in [6.0, 7.4] window: |ΔCharge| stays small,
+    # driven only by the IPC 2.0 N-terminus pKa (7.947) edge contribution.
+    def test_no_histidine_small_magnitude(self):
+        ds = charge_shift("AAAAAAAAAA", IPC2_PEPTIDE, include_cys=True)
+        assert ds is not None
+        assert abs(ds) < 0.5
+
+    # Adding histidines monotonically grows |ΔCharge| — His is the metric's
+    # primary driver per the spec.
+    def test_histidine_count_dominates_magnitude(self):
+        ds_0 = charge_shift("AAAAAAAAAA", IPC2_PEPTIDE, include_cys=True)
+        ds_1 = charge_shift("AAAAAAAAAH", IPC2_PEPTIDE, include_cys=True)
+        ds_3 = charge_shift("AAAAAAAHHH", IPC2_PEPTIDE, include_cys=True)
+        ds_5 = charge_shift("AAAAAHHHHH", IPC2_PEPTIDE, include_cys=True)
+        assert ds_0 is not None and ds_1 is not None and ds_3 is not None and ds_5 is not None
+        # All negative (acidification gains positive charge → from − to is negative).
+        assert ds_5 < ds_3 < ds_1 < ds_0
+        # Each added His shifts ΔCharge measurably more negative (~−0.5 to
+        # −0.7 per His at IPC 2.0 peptide pKa_H ~6.04, BioPython HH model).
+        assert (ds_1 - ds_0) < -0.4
+        assert (ds_5 - ds_0) < -2.0
+
+    # NA propagation: invalid sequence at either pH point yields None.
+    def test_invalid_sequence_returns_none(self):
+        assert charge_shift("", IPC2_PEPTIDE) is None
+        assert charge_shift("ACG*", IPC2_PEPTIDE) is None
+
+    # Anti-symmetry: swapping the pH endpoints flips the sign.
+    def test_swapped_endpoints_flip_sign(self):
+        seq = "ACDEFGHIK"
+        forward = charge_shift(seq, IPC2_PEPTIDE, include_cys=True, ph_from=7.4, ph_to=6.0)
+        reverse = charge_shift(seq, IPC2_PEPTIDE, include_cys=True, ph_from=6.0, ph_to=7.4)
+        assert forward is not None and reverse is not None
+        assert forward == pytest.approx(-reverse, abs=1e-9)
+
+    # Cys-include vs Cys-exclude affects ΔCharge for Cys-bearing sequences.
+    # IPC 2.0 peptide pKa_C ~7.555 sits inside the 6.0-7.4 window, so Cys
+    # contributes a non-trivial component when included.
+    def test_cys_include_versus_exclude_differs_on_cys_sequence(self):
+        with_cys = charge_shift("ACDEFG", IPC2_PEPTIDE, include_cys=True)
+        without_cys = charge_shift("ACDEFG", IPC2_PEPTIDE, include_cys=False)
+        assert with_cys is not None and without_cys is not None
+        assert with_cys != pytest.approx(without_cys, abs=1e-3)
+
+
+class TestFvChargeShift:
+    """Fv ΔCharge — additivity and NA propagation across paired chains."""
+
+    # Fv ΔCharge equals the sum of per-chain ΔCharge values (Cys-excluded,
+    # protein pKa). Equivalent to (charge(VH, 7.4) + charge(VL, 7.4)) −
+    # (charge(VH, 6.0) + charge(VL, 6.0)).
+    @pytest.mark.parametrize(
+        "vh, vl",
+        [
+            ("EVQLVQSGGGLVQPGGSLRLSCAAS", "DIQMTQSPSSLSASVGDRVTITC"),
+            ("EVQLVQSGGGHHHLVQPGGSLRLSCAAS", "DIQMTHHHQSPSSLSASVGDRVTITC"),
+        ],
+        ids=["natural", "his_rich"],
+    )
+    def test_additivity_across_chains(self, vh: str, vl: str):
+        s_fv = fv_charge_shift(vh, vl, IPC2_PROTEIN)
+        s_vh = charge_shift(vh, IPC2_PROTEIN, include_cys=False)
+        s_vl = charge_shift(vl, IPC2_PROTEIN, include_cys=False)
+        assert s_fv is not None and s_vh is not None and s_vl is not None
+        assert s_fv == pytest.approx(s_vh + s_vl, abs=1e-9)
+
+    # Either chain invalid → Fv ΔCharge None.
+    def test_invalid_chain_returns_none(self):
+        assert fv_charge_shift("", "DIQMTQ", IPC2_PROTEIN) is None
+        assert fv_charge_shift("EVQLVQ", "", IPC2_PROTEIN) is None
+        assert fv_charge_shift("EVQLV*Q", "DIQMTQ", IPC2_PROTEIN) is None
 
 
 class TestIsoelectricPoint:
