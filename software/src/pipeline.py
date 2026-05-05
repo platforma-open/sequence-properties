@@ -166,10 +166,11 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
         schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64},
     )
 
-    # R9 — flag whether any peptide falls below the Instability Index floor.
-    # Mirrors the per-row gate inside `instability_index` so the banner gates
-    # on the same condition that produces NA cells.
-    has_below_floor = any(effective_length(s) < INSTABILITY_MIN_LENGTH for s in seqs)
+    # R9 — flag whether any *real* peptide falls below the Instability Index
+    # floor. `if s` filters None / "" so the banner does not fire on empty
+    # cells (which are no peptide, not a short peptide); `0 < effective_length`
+    # filters sequences that clean to empty (e.g. all-non-standard residues).
+    has_below_floor = any(0 < effective_length(s) < INSTABILITY_MIN_LENGTH for s in seqs if s)
     stats = {
         "medianCdr3Length": {},
         "hasPeptideBelowInstabilityFloor": has_below_floor,

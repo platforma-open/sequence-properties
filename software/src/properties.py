@@ -149,14 +149,14 @@ def charge_shift(
 ) -> float | None:
     """ΔCharge = charge(seq, ph_from) − charge(seq, ph_to). Henderson-Hasselbalch
     at both pH points using the same pKa set as `charge_at_ph`. Histidine
-    dominates the 7.4 → 6.0 window (~−0.46 per His). Returns None when either
-    endpoint is None (invalid sequence, no standard residues).
+    dominates the 7.4 → 6.0 window (~−0.46 per His). Returns None when the
+    sequence is invalid or no standard residues remain after cleaning.
     """
-    c_from = charge_at_ph(seq, ph_from, pka_set, include_cys)
-    c_to = charge_at_ph(seq, ph_to, pka_set, include_cys)
-    if c_from is None or c_to is None:
+    cleaned = _prepare(seq)
+    if cleaned is None:
         return None
-    return c_from - c_to
+    ip = _ipc2_isoelectric_point(cleaned, pka_set, include_cys)
+    return ip.charge_at_pH(ph_from) - ip.charge_at_pH(ph_to)
 
 
 def isoelectric_point(
