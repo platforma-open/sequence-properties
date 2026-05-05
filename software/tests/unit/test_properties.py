@@ -290,6 +290,7 @@ class TestFvChargeShift:
             ("EVQLVQSGGGLVQPGGSLRLSCAAS", "DIQMTQSPSSLSASVGDRVTITC"),
             ("EVQLVQSGGGHHHLVQPGGSLRLSCAAS", "DIQMTHHHQSPSSLSASVGDRVTITC"),
         ],
+        ids=["natural", "his_rich"],
     )
     def test_additivity_across_chains(self, vh: str, vl: str):
         s_fv = fv_charge_shift(vh, vl, IPC2_PROTEIN)

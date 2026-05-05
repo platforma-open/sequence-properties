@@ -245,12 +245,18 @@ def extinction_coefficients(seq: str) -> tuple[float | None, float | None]:
     return (float(oxidized), float(reduced))
 
 
+# Effective-length floor for the Guruprasad instability index (spec R9). Exposed
+# so the pipeline can count how many rows fall below the floor without duplicating
+# the threshold.
+INSTABILITY_MIN_LENGTH = 10
+
+
 def instability_index(seq: str) -> float | None:
     """Guruprasad instability index. Spec floor: effective length ≥ 10 (NA
     otherwise) — BioPython has no such floor, so we enforce it here.
     """
     cleaned = _prepare(seq)
-    if cleaned is None or len(cleaned) < 10:
+    if cleaned is None or len(cleaned) < INSTABILITY_MIN_LENGTH:
         return None
     return ProteinAnalysis(cleaned).instability_index()
 

@@ -23,6 +23,7 @@ import polars as pl
 from aa_tables import STANDARD_AAS
 from pka_tables import IPC2_PEPTIDE, IPC2_PROTEIN
 from properties import (
+    INSTABILITY_MIN_LENGTH,
     aa_fractions,
     aliphatic_index,
     aromaticity,
@@ -87,14 +88,13 @@ def run(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
     - `aa_fraction` (DataFrame): long-format (entity_key, aminoAcid, value).
       Empty body when mode is not peptide.
     - `stats` (dict): dataset-level stats consumed by the workflow info layer
-      (e.g. R11c VHH detection — median CDR-H3 length per chain).
+      (e.g. R11c VHH detection — median CDR-H3 length per chain;
+      R9 — peptide count below the Instability Index length floor).
     """
     mode = plan["mode"]
     if mode == "peptide":
         log.info("Running peptide mode (%d entities)", reads.height)
-        out = run_peptide(reads)
-        out["stats"] = {"medianCdr3Length": {}}
-        return out
+        return run_peptide(reads)
     log.info(
         "Running antibody/TCR mode (receptor=%s, %d clones)",
         plan.get("receptor", "IG"),
@@ -140,7 +140,7 @@ def _compute_peptide_row(seq: str) -> dict[str, float | None]:
     }
 
 
-def run_peptide(reads: pl.DataFrame) -> dict[str, pl.DataFrame]:
+def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
     """Compute peptide-mode outputs."""
     keys = reads["entity_key"].to_list()
     seqs = reads["sequence"].to_list()
@@ -166,7 +166,20 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, pl.DataFrame]:
         schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64},
     )
 
-    return {"properties": _quantize_for_cid(properties), "aa_fraction": aa_fraction}
+    # R9 — flag whether any peptide falls below the Instability Index floor.
+    # Mirrors the per-row gate inside `instability_index` so the banner gates
+    # on the same condition that produces NA cells.
+    has_below_floor = any(effective_length(s) < INSTABILITY_MIN_LENGTH for s in seqs)
+    stats = {
+        "medianCdr3Length": {},
+        "hasPeptideBelowInstabilityFloor": has_below_floor,
+    }
+
+    return {
+        "properties": _quantize_for_cid(properties),
+        "aa_fraction": aa_fraction,
+        "stats": stats,
+    }
 
 
 # ---------------------------------------------------------------------------

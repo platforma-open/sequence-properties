@@ -60,6 +60,25 @@ class TestPeptideMode:
         row = out["properties"].filter(pl.col("entity_key") == "pep2").row(0, named=True)
         assert row["instability_peptide"] == pytest.approx(9.0)
 
+    # R9 — the banner gates on whether any peptide falls below the floor, so
+    # the workflow only surfaces the disclaimer when at least one cell will be
+    # NA. The boundary case (9-aa vs 10-aa) guards against off-by-one if `<`
+    # ever flips to `<=`.
+    @pytest.mark.parametrize(
+        ("sequences", "expected_has_below"),
+        [
+            (["ACDEFGHIKL", "AAAAAAAAAA", ""], True),
+            (["ACDEFGHIKL", "AAAAAAAAAA"], False),
+            (["ACDEF", "KNTLMAR", "MPTW"], True),
+            (["AAAAAAAAA", "AAAAAAAAAA"], True),
+        ],
+        ids=["mixed-empty-and-above", "all-above", "all-below", "boundary-9-vs-10"],
+    )
+    def test_instability_floor_flag_tracks_na_rows(self, sequences: list[str], expected_has_below: bool):
+        reads = pl.DataFrame({"entity_key": [f"p{i}" for i in range(len(sequences))], "sequence": sequences})
+        out = run(reads, {"mode": "peptide"})
+        assert out["stats"]["hasPeptideBelowInstabilityFloor"] is expected_has_below
+
     # AA fraction frame: 20 rows × N entities, sums to 1.0 per non-empty entity.
     def test_aa_fraction_long_format(self, reads: pl.DataFrame):
         out = run(reads, {"mode": "peptide"})
@@ -321,7 +340,10 @@ class TestEmptyInput:
             assert col in out["properties"].columns
         assert out["aa_fraction"].height == 0
         assert set(out["aa_fraction"].columns) == {"entity_key", "aminoAcid", "value"}
-        assert out["stats"] == {"medianCdr3Length": {}}
+        assert out["stats"] == {
+            "medianCdr3Length": {},
+            "hasPeptideBelowInstabilityFloor": False,
+        }
 
     # Antibody mode with zero rows — properties has entity_key + the columns
     # the plan asks for; medians dict is empty (no CDR3 lengths to compute).
@@ -355,11 +377,12 @@ class TestR11cStats:
     R11c VHH detection. Median CDR3 length per chain is the load-bearing field.
     """
 
-    # Peptide mode has no chains — stats present, medianCdr3Length empty.
+    # Peptide mode has no chains — medianCdr3Length empty; floor flag present.
     def test_peptide_mode_emits_empty_medians(self):
         reads = pl.DataFrame({"entity_key": ["p1"], "sequence": ["ACDEFGHIKL"]})
         out = run(reads, {"mode": "peptide"})
-        assert out["stats"] == {"medianCdr3Length": {}}
+        assert out["stats"]["medianCdr3Length"] == {}
+        assert out["stats"]["hasPeptideBelowInstabilityFloor"] is False
 
     # Antibody mode with only chain A CDR3 — only chain A appears in medians.
     # This is the VHH precondition shape the workflow checks.
