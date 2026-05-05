@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@platforma-open/milaboratories.sequence-properties.model": "workspace:*",
+    "@platforma-sdk/model": "catalog:",
     "@platforma-sdk/ui-vue": "catalog:"
   },
   "devDependencies": {
