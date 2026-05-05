@@ -20,7 +20,9 @@ CHARGE_SHIFT_PH_FROM := "7.4"
 CHARGE_SHIFT_PH_TO := "6.0"
 
 // Spec R6b — same description on every chargeShift column (peptide / CDR3 / Fv).
-CHARGE_SHIFT_DESC := "Net charge change going from pH 7.4 (blood) to pH 6.0 (endosomal/acidic compartments). Negative values mean the molecule gains positive charge on acidification — the productive direction for histidine-driven pH switching. Histidine dominates this metric (~−0.46 per His; pKa ~6.0 sits in the window); Asp, Glu, Lys, Arg do not titrate in this range. Necessary but not sufficient for pH-dependent binding: values near 0 indicate the molecule cannot pH-switch via histidine titration; large-magnitude values indicate the *capacity* to pH-switch but require structural validation that titrating residues sit at the binding interface. Does not detect Asp/Glu-driven switching (e.g., pHLIP-class peptides)."
+// Wording tightened from the verbatim spec R6b text (~110 words → ~70) for tooltip
+// readability; substance unchanged.
+CHARGE_SHIFT_DESC := "Net charge change from pH 7.4 (blood) to pH 6.0 (endosome). Negative values mean the molecule gains positive charge on acidification — the productive direction for histidine-driven pH switching. Histidine dominates (~−0.46 per His; pKa ~6.0 sits in the window); Asp, Glu, Lys, Arg do not titrate here. Small |ΔCharge| → no histidine-driven switching capacity; large |ΔCharge| → switching capacity, pending structural confirmation that the titrating residues sit at the binding interface. Excludes Asp/Glu-driven switching (e.g., pHLIP-class peptides)."
 
 // Receptor + chain → human label fragments (CDR3 / full-chain).
 // Spec R13a: PColumn name and chain domain are unchanged; only the label varies.
@@ -87,6 +89,13 @@ self.body(func(args) {
 		if medA != undefined && medA >= 16 {
 			infoMessages += [messages.vhh()]
 		}
+	}
+
+	// R9 — Instability Index is NA for peptides shorter than 10 aa. Surface a
+	// banner in peptide mode whenever any row falls below the floor so the
+	// user understands why the Instability Index column is blank.
+	if mode == "peptide" && stats.hasPeptideBelowInstabilityFloor == true {
+		infoMessages += [messages.peptidesShortInstability()]
 	}
 
 	infoBlob := smart.createValueResource(constants.RTYPE_JSON, canonical.encode({
