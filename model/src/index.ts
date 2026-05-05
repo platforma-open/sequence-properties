@@ -144,8 +144,14 @@ export const platforma = BlockModelV3.create(blockDataModel)
     });
   })
   .outputWithStatus("propertiesPfHandle", (ctx): PFrameHandle | undefined => {
-    const pCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
-    if (pCols === undefined) return undefined;
+    const allPCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
+    if (allPCols === undefined) return undefined;
+    // Drop the AA fraction column from the pframe entirely. Two-axis
+    // (variantKey × aminoAcid), at 50k peptides ~1M cells — enough to trip
+    // graph-maker's cell-count guard on its own. The picker already excludes
+    // it via `isNumericScalar` (axesSpec.length === 1), so the data was
+    // pure overhead.
+    const pCols = allPCols.filter((c) => c.spec.name !== "pl7.app/aaFraction");
     // Use `ctx.createPFrame` instead of `createPFrameForGraphs`. The latter
     // walks the result pool and pulls in this block's `exports.properties`
     // — a `trace.inject`-stamped re-emission of every column already in
