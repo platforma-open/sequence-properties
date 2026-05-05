@@ -449,3 +449,93 @@ chain is present.
 - MiXCR chain enum verified via `mcp__pl__query_table` on the bulk QC
   pt (`reports/bulk/clonotypesByChain/{IGHeavy,IGLight,TCRAlpha,TCRBeta,TCRGamma,TCRDelta}`).
 - Predecessor: SD-003 (receptor on axis domain for single-cell).
+
+---
+
+## SD-009: Defer R21 Reference Line At GRAVY = 0
+
+**Status:** applied
+**Date:** 2026-05-05
+**Affected file:** `ui/src/pages/ScatterPage.vue` (line not rendered),
+`ui/src/pages/HistogramPage.vue` (line not rendered)
+
+### Symptom
+
+Spec R21 calls for `significantLines: [0]` on the scatterplot axis whenever a
+hydrophobicity column is plotted, marking the hydrophobic / hydrophilic divide.
+Spec R21a calls for the same on the histogram metric axis when the hook
+exists. The implementation ships scatter and histogram panels without the
+reference line on either chart.
+
+### Root cause
+
+Graph-maker has no path to inject `significantLines` on a data-column axis
+today. Verified at `core/visualizations/packages/graph-maker/src/`:
+
+- `composeScatterplotSettings.ts:applyChartInfoFromAnnotations` only reads
+  `Annotation.Graph.Thresholds` from the **grouping** column's spec
+  (lines ~82–113), not from the X or Y selected source.
+- `getAxesDataFromForms.ts:getAxesDataFromFormsScatterplot` propagates
+  `axesFormsData.axisX.significantLinesStyle` to the rendered axis but does
+  not carry a `significantLines: number[]` array — that field does not exist
+  on `AxesState.axisX/axisY` (`constantsCommon.ts` `AxesState`).
+- `composeHistogramSettings.ts` does not consume `significantLines` at all
+  (the histogram path has no thresholds wiring).
+
+Spec R21 explicitly notes this: "graph-maker today does not read thresholds
+from the X/Y data column directly. A platform-side extension to read
+thresholds from data columns is tracked separately and is not part of this
+block's spec."
+
+### Trigger
+
+Every scatter + histogram render. The reference line never appears regardless
+of which column is selected on which axis.
+
+### Impact
+
+Visual cue at hydrophobic / hydrophilic divide is missing. Properties are
+computed and plotted correctly; only the divide marker is absent. Users can
+still read the value at zero off the axis ticks.
+
+### Options considered
+
+**A. Defer R21 and R21a entirely. [chosen]**
+Skip the line on both panels. No graph-maker changes, no data-model
+annotations. Land the panels now; pick up the line when graph-maker grows
+the affordance.
+
+**B. Extend `composeScatterplotSettings` to read thresholds from X/Y data
+columns and annotate hydrophobicity columns with `Annotation.Graph.Thresholds
+= [{value: 0}]` in this block's workflow.**
+Reusable by other blocks. Spec carves this out as "platform-side extension...
+tracked separately, not in this block's spec" — doing it here expands scope
+into `core/visualizations` and needs visualizations-team sign-off. Defer.
+
+**C. Add a block-local `axisInjections` prop to `GraphMaker` so blocks can
+pass `significantLines` directly without column annotation.**
+Matches spec wording ("block-local scope, not a PColumn annotation") most
+literally. New graph-maker API surface, design review on prop shape, same
+`core/visualizations` touch as B. Defer.
+
+### Decision
+
+**A.** The spec already permits R21a to defer; extending the same posture to
+R21 keeps this block's scope contained. Revisit when the platform-side
+extension named in the spec lands, or on explicit ask to scope graph-maker
+work into this block.
+
+### Implementation
+
+No code injects `significantLines`. Pages call `GraphMaker` with default
+options that select hydrophobicity columns when modality dictates; the
+chart renders without the reference line.
+
+### References
+
+- Spec sections touched: `README.md` Requirements R21, R21a; Visualizations
+  §Reference line at GRAVY = 0.
+- Graph-maker render path verified in
+  `core/visualizations/packages/graph-maker/src/utils/createChartSettingsForRender/composeScatterplotSettings.ts`,
+  `composeHistogramSettings.ts`, and `getAxesDataFromForms.ts`.
+- `AxesState` shape: `core/visualizations/packages/graph-maker/src/constantsCommon.ts`.
