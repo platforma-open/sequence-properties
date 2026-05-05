@@ -50,7 +50,7 @@ const defaultOptions = computed((): PredefinedGraphOption<"scatterplot">[] | nul
       :default-options="defaultOptions"
       :data-column-predicate="dataColumnPredicate"
       :status-text="{
-        noPframe: { title: 'Select an input dataset on the Properties tab to plot.' },
+        noPframe: { title: 'Select an input dataset on the Main tab to plot.' },
       }"
     />
   </PlBlockPage>
