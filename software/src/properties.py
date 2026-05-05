@@ -63,8 +63,12 @@ def clean_sequence(seq: str) -> str:
 
 
 def effective_length(seq: str) -> int:
-    """Count of standard residues. Non-standard / gap characters do not count."""
-    return len(clean_sequence(seq))
+    """Count of standard residues. Non-standard / gap characters do not count.
+
+    Counts in a single pass without allocating the cleaned string — saves
+    O(L) intermediate memory on hot stats paths (e.g. per-chain CDR3 medians).
+    """
+    return sum(1 for c in seq.upper() if c in STANDARD_AA_SET)
 
 
 def aa_counts(seq: str) -> dict[str, int]:
@@ -92,6 +96,107 @@ def _prepare(seq: str | None) -> str | None:
         return None
     cleaned = clean_sequence(seq)
     return cleaned or None
+
+
+# ---------------------------------------------------------------------------
+# Per-sequence cached context
+# ---------------------------------------------------------------------------
+#
+# Building one ProteinAnalysis or one IsoelectricPoint per property read repeats
+# the same O(L) AA-count work N times per sequence. SequenceContext computes
+# `_prepare` once, then memoises one ProteinAnalysis and one IsoelectricPoint
+# per (pka_set, include_cys) — so all property reads on a single sequence share
+# the same cached internals. Public top-level functions still build a one-shot
+# context, keeping the existing API and tests unchanged.
+
+
+class SequenceContext:
+    """Per-sequence cached state. Build via `SequenceContext.from_seq(seq)` —
+    returns None for invalid/empty-after-cleaning input. Methods mirror the
+    module's top-level property functions but skip the per-call `_prepare` and
+    reuse cached BioPython objects.
+    """
+
+    __slots__ = ("cleaned", "_pa", "_ip_cache")
+
+    def __init__(self, cleaned: str) -> None:
+        self.cleaned = cleaned
+        self._pa: ProteinAnalysis | None = None
+        self._ip_cache: dict[tuple[str, bool], IsoelectricPoint] = {}
+
+    @classmethod
+    def from_seq(cls, seq: str | None) -> SequenceContext | None:
+        cleaned = _prepare(seq)
+        return None if cleaned is None else cls(cleaned)
+
+    @property
+    def length(self) -> int:
+        return len(self.cleaned)
+
+    @property
+    def protein_analysis(self) -> ProteinAnalysis:
+        if self._pa is None:
+            self._pa = ProteinAnalysis(self.cleaned)
+        return self._pa
+
+    def isoelectric(self, pka_set: PKaSet, include_cys: bool) -> IsoelectricPoint:
+        key = (pka_set.name, include_cys)
+        ip = self._ip_cache.get(key)
+        if ip is None:
+            ip = _ipc2_isoelectric_point(self.cleaned, pka_set, include_cys)
+            self._ip_cache[key] = ip
+        return ip
+
+    def charge_at_ph(self, ph: float, pka_set: PKaSet, include_cys: bool = True) -> float:
+        return self.isoelectric(pka_set, include_cys).charge_at_pH(ph)
+
+    def charge_shift(
+        self,
+        pka_set: PKaSet,
+        include_cys: bool = True,
+        ph_from: float = 7.4,
+        ph_to: float = 6.0,
+    ) -> float:
+        ip = self.isoelectric(pka_set, include_cys)
+        return ip.charge_at_pH(ph_from) - ip.charge_at_pH(ph_to)
+
+    def isoelectric_point(self, pka_set: PKaSet, include_cys: bool = True) -> float | None:
+        return _bisect_charge_zero(self.isoelectric(pka_set, include_cys).charge_at_pH)
+
+    def gravy(self) -> float:
+        return self.protein_analysis.gravy()
+
+    def molecular_weight(self) -> float:
+        return self.protein_analysis.molecular_weight()
+
+    def aromaticity(self) -> float:
+        return self.protein_analysis.aromaticity()
+
+    def extinction_coefficients(self) -> tuple[float, float]:
+        reduced, oxidized = self.protein_analysis.molar_extinction_coefficient()
+        return (float(oxidized), float(reduced))
+
+    def instability_index(self) -> float | None:
+        if self.length < INSTABILITY_MIN_LENGTH:
+            return None
+        return self.protein_analysis.instability_index()
+
+    def aliphatic_index(self) -> float:
+        # Aliphatic index needs only 4 of the 20 counts. `str.count` runs at
+        # C speed in one pass per residue; faster than building a 20-key dict
+        # via `aa_counts`, and the resulting integers are bit-identical so
+        # the divide-and-multiply produces the same float.
+        n = self.length
+        cleaned = self.cleaned
+        x_a = cleaned.count("A") / n
+        x_v = cleaned.count("V") / n
+        x_i = cleaned.count("I") / n
+        x_l = cleaned.count("L") / n
+        return 100.0 * (x_a + 2.9 * x_v + 3.9 * (x_i + x_l))
+
+    def aa_fractions(self) -> dict[str, float]:
+        pct = self.protein_analysis.amino_acids_percent
+        return {aa: pct[aa] / 100.0 for aa in STANDARD_AAS}
 
 
 # ---------------------------------------------------------------------------
@@ -134,10 +239,8 @@ def charge_at_ph(seq: str, ph: float, pka_set: PKaSet, include_cys: bool = True)
     Returns None when the sequence is invalid or when no standard residues
     remain after non-standard filtering.
     """
-    cleaned = _prepare(seq)
-    if cleaned is None:
-        return None
-    return _ipc2_isoelectric_point(cleaned, pka_set, include_cys).charge_at_pH(ph)
+    ctx = SequenceContext.from_seq(seq)
+    return None if ctx is None else ctx.charge_at_ph(ph, pka_set, include_cys)
 
 
 def charge_shift(
@@ -152,11 +255,8 @@ def charge_shift(
     dominates the 7.4 → 6.0 window (~−0.46 per His). Returns None when the
     sequence is invalid or no standard residues remain after cleaning.
     """
-    cleaned = _prepare(seq)
-    if cleaned is None:
-        return None
-    ip = _ipc2_isoelectric_point(cleaned, pka_set, include_cys)
-    return ip.charge_at_pH(ph_from) - ip.charge_at_pH(ph_to)
+    ctx = SequenceContext.from_seq(seq)
+    return None if ctx is None else ctx.charge_shift(pka_set, include_cys, ph_from, ph_to)
 
 
 def isoelectric_point(
@@ -174,11 +274,8 @@ def isoelectric_point(
     Returns None when no zero crossing exists in [0, 14], or after
     non-standard filtering yields an empty sequence.
     """
-    cleaned = _prepare(seq)
-    if cleaned is None:
-        return None
-    ip = _ipc2_isoelectric_point(cleaned, pka_set, include_cys)
-    return _bisect_charge_zero(ip.charge_at_pH)
+    ctx = SequenceContext.from_seq(seq)
+    return None if ctx is None else ctx.isoelectric_point(pka_set, include_cys)
 
 
 def _bisect_charge_zero(charge_fn, lo: float = 0.0, hi: float = 14.0, tol: float = 0.001) -> float | None:
@@ -206,27 +303,22 @@ def _bisect_charge_zero(charge_fn, lo: float = 0.0, hi: float = 14.0, tol: float
 # ---------------------------------------------------------------------------
 
 
-def _protein_analysis(seq: str) -> ProteinAnalysis | None:
-    """Cleaned BioPython ProteinAnalysis object, or None when invalid.
-
-    BioPython rejects non-standard residues — clean first.
-    """
-    cleaned = _prepare(seq)
-    if cleaned is None:
-        return None
-    return ProteinAnalysis(cleaned)
+# Effective-length floor for the Guruprasad instability index (spec R9). Exposed
+# so the pipeline can count how many rows fall below the floor without duplicating
+# the threshold.
+INSTABILITY_MIN_LENGTH = 10
 
 
 def gravy(seq: str) -> float | None:
     """Kyte-Doolittle GRAVY: mean hydropathy across standard residues."""
-    p = _protein_analysis(seq)
-    return None if p is None else p.gravy()
+    ctx = SequenceContext.from_seq(seq)
+    return None if ctx is None else ctx.gravy()
 
 
 def molecular_weight(seq: str) -> float | None:
     """Average mass (Da). BioPython uses the same residue-mass table we did."""
-    p = _protein_analysis(seq)
-    return None if p is None else p.molecular_weight()
+    ctx = SequenceContext.from_seq(seq)
+    return None if ctx is None else ctx.molecular_weight()
 
 
 def extinction_coefficients(seq: str) -> tuple[float | None, float | None]:
@@ -238,27 +330,18 @@ def extinction_coefficients(seq: str) -> tuple[float | None, float | None]:
 
     Sequences with no Tyr or Trp emit (0, 0); invalid sequences emit (None, None).
     """
-    p = _protein_analysis(seq)
-    if p is None:
+    ctx = SequenceContext.from_seq(seq)
+    if ctx is None:
         return (None, None)
-    reduced, oxidized = p.molar_extinction_coefficient()
-    return (float(oxidized), float(reduced))
-
-
-# Effective-length floor for the Guruprasad instability index (spec R9). Exposed
-# so the pipeline can count how many rows fall below the floor without duplicating
-# the threshold.
-INSTABILITY_MIN_LENGTH = 10
+    return ctx.extinction_coefficients()
 
 
 def instability_index(seq: str) -> float | None:
     """Guruprasad instability index. Spec floor: effective length ≥ 10 (NA
     otherwise) — BioPython has no such floor, so we enforce it here.
     """
-    cleaned = _prepare(seq)
-    if cleaned is None or len(cleaned) < INSTABILITY_MIN_LENGTH:
-        return None
-    return ProteinAnalysis(cleaned).instability_index()
+    ctx = SequenceContext.from_seq(seq)
+    return None if ctx is None else ctx.instability_index()
 
 
 def aliphatic_index(seq: str) -> float | None:
@@ -267,22 +350,14 @@ def aliphatic_index(seq: str) -> float | None:
 
     Custom — BioPython has no aliphatic index helper.
     """
-    cleaned = _prepare(seq)
-    if cleaned is None:
-        return None
-    n = len(cleaned)
-    counts = aa_counts(cleaned)
-    x_a = counts["A"] / n
-    x_v = counts["V"] / n
-    x_i = counts["I"] / n
-    x_l = counts["L"] / n
-    return 100.0 * (x_a + 2.9 * x_v + 3.9 * (x_i + x_l))
+    ctx = SequenceContext.from_seq(seq)
+    return None if ctx is None else ctx.aliphatic_index()
 
 
 def aromaticity(seq: str) -> float | None:
     """Aromatic fraction (F + W + Y) / effective_length, via BioPython."""
-    p = _protein_analysis(seq)
-    return None if p is None else p.aromaticity()
+    ctx = SequenceContext.from_seq(seq)
+    return None if ctx is None else ctx.aromaticity()
 
 
 def aa_fractions(seq: str) -> dict[str, float] | None:
@@ -292,11 +367,8 @@ def aa_fractions(seq: str) -> dict[str, float] | None:
     BioPython's `amino_acids_percent` returns values in PERCENT (sum = 100).
     Convert to fractions to match the PColumn output convention.
     """
-    p = _protein_analysis(seq)
-    if p is None:
-        return None
-    pct = p.amino_acids_percent
-    return {aa: pct[aa] / 100.0 for aa in STANDARD_AAS}
+    ctx = SequenceContext.from_seq(seq)
+    return None if ctx is None else ctx.aa_fractions()
 
 
 # ---------------------------------------------------------------------------
