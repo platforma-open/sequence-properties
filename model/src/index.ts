@@ -1,4 +1,9 @@
-import type { ColumnSource, InferOutputsType } from "@platforma-sdk/model";
+import type {
+  ColumnSource,
+  InferOutputsType,
+  PColumnIdAndSpec,
+  PFrameHandle,
+} from "@platforma-sdk/model";
 import {
   Annotation,
   ArrayColumnProvider,
@@ -138,9 +143,56 @@ export const platforma = BlockModelV3.create(blockDataModel)
       },
     });
   })
+  .outputWithStatus("propertiesPfHandle", (ctx): PFrameHandle | undefined => {
+    const allPCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
+    if (allPCols === undefined) return undefined;
+    // Drop the AA fraction column from the pframe entirely. Two-axis
+    // (variantKey × aminoAcid), at 50k peptides ~1M cells — enough to trip
+    // graph-maker's cell-count guard on its own. The picker already excludes
+    // it via `isNumericScalar` (axesSpec.length === 1), so the data was
+    // pure overhead.
+    const pCols = allPCols.filter((c) => c.spec.name !== "pl7.app/aaFraction");
+    // Use `ctx.createPFrame` instead of `createPFrameForGraphs`. The latter
+    // walks the result pool and pulls in this block's `exports.properties`
+    // — a `trace.inject`-stamped re-emission of every column already in
+    // `propertiesPf`, published for Lead Selection — so axis dropdowns
+    // show e.g. "Net Charge (pH7) / IG" twice. Same workaround chosen by
+    // cdr3-spectratype, batch-correction, cell-type-annotation, and
+    // dimensionality-reduction.
+    //
+    // Pull single-axis metadata anchored to the input dataset's two axes
+    // (idx 0 = sample, idx 1 = entity key) so sample groups / patient IDs /
+    // peptide abundance and similar cols remain available for grouping and
+    // filtering. Drop self-trace to keep our own exports out.
+    const inputAnchor = ctx.data.inputAnchor;
+    const upstreamMeta =
+      inputAnchor !== undefined
+        ? (
+            ctx.resultPool.getAnchoredPColumns({ main: inputAnchor }, [
+              { axes: [{ anchor: "main", idx: 0 }] },
+              { axes: [{ anchor: "main", idx: 1 }] },
+            ]) ?? []
+          ).filter(
+            (c) =>
+              !c.spec.annotations?.[Annotation.Trace]?.includes(
+                "milaboratories.sequence-properties",
+              ),
+          )
+        : [];
+    return ctx.createPFrame([...pCols, ...upstreamMeta]);
+  })
+  .output("propertiesPfCols", (ctx): PColumnIdAndSpec[] | undefined => {
+    const pCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
+    if (pCols === undefined) return undefined;
+    return pCols.map((c) => ({ columnId: c.id, spec: c.spec }) satisfies PColumnIdAndSpec);
+  })
   .title(() => "Sequence Properties")
   .subtitle((ctx) => ctx.data.defaultBlockLabel ?? "")
-  .sections(() => [{ type: "link" as const, href: "/" as const, label: "Main" }])
+  .sections(() => [
+    { type: "link" as const, href: "/" as const, label: "Main" },
+    { type: "link" as const, href: "/scatter" as const, label: "Scatterplot" },
+    { type: "link" as const, href: "/histogram" as const, label: "Histogram" },
+  ])
   .done();
 
 export type BlockOutputs = InferOutputsType<typeof platforma>;

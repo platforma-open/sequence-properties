@@ -1,7 +1,9 @@
 import { platforma } from "@platforma-open/milaboratories.sequence-properties.model";
 import { defineAppV3 } from "@platforma-sdk/ui-vue";
 import { watchEffect } from "vue";
+import HistogramPage from "./pages/HistogramPage.vue";
 import MainPage from "./pages/MainPage.vue";
+import ScatterPage from "./pages/ScatterPage.vue";
 
 export const sdkPlugin = defineAppV3(platforma, (app) => {
   watchEffect(() => {
@@ -16,6 +18,8 @@ export const sdkPlugin = defineAppV3(platforma, (app) => {
   return {
     routes: {
       "/": () => MainPage,
+      "/scatter": () => ScatterPage,
+      "/histogram": () => HistogramPage,
     },
   };
 });
