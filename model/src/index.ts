@@ -13,8 +13,9 @@ import {
 import { blockDataModel } from "./dataModel";
 import type { BlockArgs, WorkflowInfo } from "./types";
 
-export type { BlockArgs, BlockData, WorkflowInfo, WorkflowMode, WorkflowReceptor } from "./types";
+export type * from "@milaboratories/helpers";
 export { blockDataModel } from "./dataModel";
+export type { BlockArgs, BlockData, WorkflowInfo, WorkflowMode, WorkflowReceptor } from "./types";
 
 const inputAnchorSpecs = [
   // Peptide mode — universal naming
@@ -47,9 +48,7 @@ export const platforma = BlockModelV3.create(blockDataModel)
       inputAnchor: data.inputAnchor,
     };
   })
-  .output("inputOptions", (ctx) =>
-    ctx.resultPool.getOptions(inputAnchorSpecs, { refsWithEnrichments: true }),
-  )
+  .output("inputOptions", (ctx) => ctx.resultPool.getOptions(inputAnchorSpecs))
   .output("inputSpec", (ctx) =>
     ctx.data.inputAnchor ? ctx.resultPool.getPColumnSpecByRef(ctx.data.inputAnchor) : undefined,
   )
@@ -189,9 +188,9 @@ export const platforma = BlockModelV3.create(blockDataModel)
   .title(() => "Sequence Properties")
   .subtitle((ctx) => ctx.data.defaultBlockLabel ?? "")
   .sections(() => [
-    { type: "link" as const, href: "/" as const, label: "Main" },
-    { type: "link" as const, href: "/scatter" as const, label: "Scatterplot" },
-    { type: "link" as const, href: "/histogram" as const, label: "Histogram" },
+    { type: "link", href: "/", label: "Main" },
+    { type: "link", href: "/scatter", label: "Property Relationships" },
+    { type: "link", href: "/histogram", label: "Property Distribution" },
   ])
   .done();
 
