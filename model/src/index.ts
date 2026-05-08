@@ -47,9 +47,7 @@ export const platforma = BlockModelV3.create(blockDataModel)
       inputAnchor: data.inputAnchor,
     };
   })
-  .output("inputOptions", (ctx) =>
-    ctx.resultPool.getOptions(inputAnchorSpecs, { refsWithEnrichments: true }),
-  )
+  .output("inputOptions", (ctx) => ctx.resultPool.getOptions(inputAnchorSpecs))
   .output("inputSpec", (ctx) =>
     ctx.data.inputAnchor ? ctx.resultPool.getPColumnSpecByRef(ctx.data.inputAnchor) : undefined,
   )
