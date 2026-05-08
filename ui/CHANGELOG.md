@@ -1,5 +1,13 @@
 # @platforma-open/MiLaboratories.sequence-properties.ui
 
+## 1.2.1
+
+### Patch Changes
+
+- 0c6ed9c: Minor fixes
+- Updated dependencies [0c6ed9c]
+  - @platforma-open/milaboratories.sequence-properties.model@1.2.1
+
 ## 1.2.0
 
 ### Minor Changes
