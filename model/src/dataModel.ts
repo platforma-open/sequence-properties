@@ -9,7 +9,7 @@ const DEFAULT_SCATTER_STATE: GraphMakerState = {
 };
 
 const DEFAULT_HISTOGRAM_STATE: GraphMakerState = {
-  title: "Property Histogram",
+  title: "Property Distribution",
   template: "bins",
   currentTab: null,
   layersSettings: {
