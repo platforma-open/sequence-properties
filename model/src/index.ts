@@ -13,8 +13,8 @@ import {
 import { blockDataModel } from "./dataModel";
 import type { BlockArgs, WorkflowInfo } from "./types";
 
-export type { BlockArgs, BlockData, WorkflowInfo, WorkflowMode, WorkflowReceptor } from "./types";
 export { blockDataModel } from "./dataModel";
+export type { BlockArgs, BlockData, WorkflowInfo, WorkflowMode, WorkflowReceptor } from "./types";
 
 const inputAnchorSpecs = [
   // Peptide mode — universal naming
@@ -187,9 +187,9 @@ export const platforma = BlockModelV3.create(blockDataModel)
   .title(() => "Sequence Properties")
   .subtitle((ctx) => ctx.data.defaultBlockLabel ?? "")
   .sections(() => [
-    { type: "link" as const, href: "/" as const, label: "Main" },
-    { type: "link" as const, href: "/scatter" as const, label: "Scatterplot" },
-    { type: "link" as const, href: "/histogram" as const, label: "Histogram" },
+    { type: "link", href: "/", label: "Main" },
+    { type: "link", href: "/scatter", label: "Properties Scatter Plot" },
+    { type: "link", href: "/histogram", label: "Property Histogram" },
   ])
   .done();
 
