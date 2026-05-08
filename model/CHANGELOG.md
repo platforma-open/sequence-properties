@@ -1,5 +1,11 @@
 # @platforma-open/MiLaboratories.sequence-properties.model
 
+## 1.2.1
+
+### Patch Changes
+
+- 0c6ed9c: Minor fixes
+
 ## 1.2.0
 
 ### Minor Changes

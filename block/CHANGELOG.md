@@ -1,5 +1,13 @@
 ## 1.0.0
 
+## 1.3.1
+
+### Patch Changes
+
+- Updated dependencies [0c6ed9c]
+  - @platforma-open/milaboratories.sequence-properties.model@1.2.1
+  - @platforma-open/milaboratories.sequence-properties.ui@1.2.1
+
 ## 1.3.0
 
 ### Minor Changes
