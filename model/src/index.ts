@@ -13,6 +13,7 @@ import {
 import { blockDataModel } from "./dataModel";
 import type { BlockArgs, WorkflowInfo } from "./types";
 
+export type * from "@milaboratories/helpers";
 export { blockDataModel } from "./dataModel";
 export type { BlockArgs, BlockData, WorkflowInfo, WorkflowMode, WorkflowReceptor } from "./types";
 
@@ -189,7 +190,7 @@ export const platforma = BlockModelV3.create(blockDataModel)
   .sections(() => [
     { type: "link", href: "/", label: "Main" },
     { type: "link", href: "/scatter", label: "Properties Scatter Plot" },
-    { type: "link", href: "/histogram", label: "Property Histogram" },
+    { type: "link", href: "/histogram", label: "Property Distribution" },
   ])
   .done();
 
