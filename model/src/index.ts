@@ -189,7 +189,7 @@ export const platforma = BlockModelV3.create(blockDataModel)
   .subtitle((ctx) => ctx.data.defaultBlockLabel ?? "")
   .sections(() => [
     { type: "link", href: "/", label: "Main" },
-    { type: "link", href: "/scatter", label: "Properties Scatter Plot" },
+    { type: "link", href: "/scatter", label: "Property Relationships" },
     { type: "link", href: "/histogram", label: "Property Distribution" },
   ])
   .done();

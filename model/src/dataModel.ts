@@ -3,7 +3,7 @@ import { createPlDataTableStateV2, DataModelBuilder } from "@platforma-sdk/model
 import type { BlockData, BlockDataV1 } from "./types";
 
 const DEFAULT_SCATTER_STATE: GraphMakerState = {
-  title: "Properties Scatter Plot",
+  title: "Property Relationships",
   template: "dots",
   currentTab: null,
 };
