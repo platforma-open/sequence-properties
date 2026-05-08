@@ -3,13 +3,13 @@ import { createPlDataTableStateV2, DataModelBuilder } from "@platforma-sdk/model
 import type { BlockData, BlockDataV1 } from "./types";
 
 const DEFAULT_SCATTER_STATE: GraphMakerState = {
-  title: "",
+  title: "Property Relationships",
   template: "dots",
   currentTab: null,
 };
 
 const DEFAULT_HISTOGRAM_STATE: GraphMakerState = {
-  title: "",
+  title: "Property Distribution",
   template: "bins",
   currentTab: null,
   layersSettings: {

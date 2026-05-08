@@ -2,7 +2,6 @@
 import type { PredefinedGraphOption } from "@milaboratories/graph-maker";
 import { GraphMaker } from "@milaboratories/graph-maker";
 import type { PColumnSpec } from "@platforma-sdk/model";
-import { PlBlockPage } from "@platforma-sdk/ui-vue";
 import { computed } from "vue";
 import { useApp } from "../app";
 import { defaultScatterAxes, isNumericScalar, numericScalarsInOrder } from "../utils/scalarColumns";
@@ -13,7 +12,7 @@ const dataColumnPredicate = (spec: PColumnSpec) => isNumericScalar(spec);
 
 // R19 default + R19a fallback. Returns null while inputs are loading; null
 // keeps GraphMaker in a "no defaults yet" state without applying stale picks.
-const defaultOptions = computed((): PredefinedGraphOption<"scatterplot">[] | null => {
+const defaultOptions = computed((): PredefinedGraphOption<"scatterplot-umap">[] | null => {
   const cols = app.model.outputs.propertiesPfCols;
   const info = app.model.outputs.info;
   if (!cols || !info) return null;
@@ -38,18 +37,15 @@ const defaultOptions = computed((): PredefinedGraphOption<"scatterplot">[] | nul
 </script>
 
 <template>
-  <PlBlockPage>
-    <template #title>Scatterplot</template>
-    <GraphMaker
-      v-model="app.model.data.graphStateScatter"
-      chart-type="scatterplot"
-      :p-frame="app.model.outputs.propertiesPfHandle"
-      :default-options="defaultOptions"
-      :default-palette="{ categorical: 'bright' }"
-      :data-column-predicate="dataColumnPredicate"
-      :status-text="{
-        noPframe: { title: 'Select an input dataset on the Main tab to plot.' },
-      }"
-    />
-  </PlBlockPage>
+  <GraphMaker
+    v-model="app.model.data.graphStateScatter"
+    chart-type="scatterplot-umap"
+    :p-frame="app.model.outputs.propertiesPfHandle"
+    :default-options="defaultOptions"
+    :default-palette="{ categorical: 'bright' }"
+    :data-column-predicate="dataColumnPredicate"
+    :status-text="{
+      noPframe: { title: 'Select an input dataset on the Main tab to plot.' },
+    }"
+  />
 </template>
