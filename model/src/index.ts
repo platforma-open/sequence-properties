@@ -8,6 +8,7 @@ import {
   Annotation,
   ArrayColumnProvider,
   BlockModelV3,
+  createPFrameForGraphs,
   createPlDataTableV3,
 } from "@platforma-sdk/model";
 import { blockDataModel } from "./dataModel";
@@ -135,7 +136,9 @@ export const platforma = BlockModelV3.create(blockDataModel)
             match: (spec) =>
               !spec.annotations?.[Annotation.Trace]?.includes(
                 "milaboratories.sequence-properties",
-              ) && spec.annotations?.["pl7.app/isLinkerColumn"] !== "true",
+              ) &&
+              spec.annotations?.["pl7.app/isLinkerColumn"] !== "true" &&
+              spec.annotations?.["pl7.app/isOutput"] !== "true",
             visibility: "optional",
           },
         ],
@@ -178,7 +181,7 @@ export const platforma = BlockModelV3.create(blockDataModel)
               ),
           )
         : [];
-    return ctx.createPFrame([...pCols, ...upstreamMeta]);
+    return createPFrameForGraphs(ctx, [...pCols, ...upstreamMeta]);
   })
   .output("propertiesPfCols", (ctx): PColumnIdAndSpec[] | undefined => {
     const pCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
