@@ -11,57 +11,9 @@ smart := import("@platforma-sdk/workflow-tengo:smart")
 canonical := import("@platforma-sdk/workflow-tengo:canonical")
 constants := import("@platforma-sdk/workflow-tengo:constants")
 messages := import(":messages")
+columnSpecs := import(":columns")
 
 self.defineOutputs("propertiesPf", "exportPframe", "info")
-
-// ΔCharge (pH 7.4 → 6.0) endpoints — fixed in v1 per spec; schema accepts
-// additional pH pairs without breaking existing column identities.
-CHARGE_SHIFT_PH_FROM := "7.4"
-CHARGE_SHIFT_PH_TO := "6.0"
-
-// Spec R6b — same description on every chargeShift column (peptide / CDR3 / Fv).
-// Trimmed to ~30 words for the column-header tooltip; PlAgDataTableV2 clips the
-// top edge against the page header. Magnitude rule and scope-exclusion caveats
-// live in pcolumn-spec.md / the spec, not in the tooltip.
-CHARGE_SHIFT_DESC := "Net charge change from pH 7.4 (blood) to pH 6.0 (endosome). Negative values mean the molecule gains positive charge on acidification — the productive direction for histidine-driven pH switching. Histidine dominates (~−0.46 per His)."
-
-// Receptor + chain → human label fragments (CDR3 / full-chain).
-// Spec R13a: PColumn name and chain domain are unchanged; only the label varies.
-labelFragments := func(receptor, chain) {
-	if receptor == "TCRAB" {
-		if chain == "A" { return { cdr3: "CDR-α3", fullChain: "Vα" } }
-		if chain == "B" { return { cdr3: "CDR-β3", fullChain: "Vβ" } }
-	}
-	if receptor == "TCRGD" {
-		if chain == "A" { return { cdr3: "CDR-γ3", fullChain: "Vγ" } }
-		if chain == "B" { return { cdr3: "CDR-δ3", fullChain: "Vδ" } }
-	}
-	// IG / unknown — antibody convention.
-	if chain == "A" { return { cdr3: "CDR-H3", fullChain: "VH" } }
-	return { cdr3: "CDR-L3", fullChain: "VL" }
-}
-
-// Build a single output column descriptor consumed by xsv.importFile.
-// `tsvCol` is the TSV column header emitted by Python (e.g. "charge_peptide", "charge_A_CDR3").
-// Clones the caller's `annotations` dict — mutating it in place would stamp
-// the label into shared references if any caller ever reused the literal,
-// the same aliasing footgun that the export-domain clone below already guards.
-makeCol := func(tsvCol, valName, valueType, label, domain, annotations) {
-	newAnnotations := {}
-	if annotations {
-		for k, v in annotations {
-			newAnnotations[k] = v
-		}
-	}
-	newAnnotations["pl7.app/label"] = label
-	spec := {
-		name: valName,
-		valueType: valueType,
-		domain: domain,
-		annotations: newAnnotations
-	}
-	return { column: tsvCol, id: tsvCol, naRegex: "", allowNA: true, spec: spec }
-}
 
 self.body(func(args) {
 	blockId := args.blockId
@@ -109,329 +61,22 @@ self.body(func(args) {
 	keyAxisSpec := datasetSpec.axesSpec[keyAxisIdx]
 
 	axes := [{ column: "entity_key", spec: keyAxisSpec }]
-	columns := []
 
-	if mode == "peptide" {
-		// Peptide mode — 9 scalar properties on `pl7.app/feature: "peptide"`.
-		dom := { "pl7.app/feature": "peptide" }
-
-		columns += [makeCol("charge_peptide", "pl7.app/charge", "Double",
-			"Net Charge (pH 7)", dom, {
-				"pl7.app/format": ".2f",
-				"pl7.app/isScore": "true",
-				"pl7.app/description": "Net charge at pH 7 (Henderson-Hasselbalch, IPC 2.0 peptide pKa set). Positive = net basic (Arg, Lys, His dominate); negative = net acidic (Asp, Glu dominate). No universal preferred direction.",
-				"pl7.app/table/visibility": "default",
-				"pl7.app/table/orderPriority": "70000"
-			})]
-
-		columns += [makeCol("chargeShift_peptide", "pl7.app/chargeShift", "Double",
-			"Peptide ΔCharge (pH 7.4 → 6.0)", {
-				"pl7.app/feature": "peptide",
-				"pl7.app/pH/from": CHARGE_SHIFT_PH_FROM,
-				"pl7.app/pH/to": CHARGE_SHIFT_PH_TO
-			}, {
-				"pl7.app/format": ".2f",
-				"pl7.app/description": CHARGE_SHIFT_DESC,
-				"pl7.app/table/visibility": "default",
-				"pl7.app/table/orderPriority": "69950"
-			})]
-
-		columns += [makeCol("gravy_peptide", "pl7.app/hydrophobicity", "Double",
-			"Hydrophobicity (GRAVY)", dom, {
-				"pl7.app/format": ".3f",
-				"pl7.app/isScore": "true",
-				"pl7.app/score/rankingOrder": "increasing",
-				"pl7.app/description": "rankingOrder: increasing reflects preference for lower hydrophobicity. Invert direction in Lead Selection for hydrophobic-target applications.",
-				"pl7.app/table/visibility": "default",
-				"pl7.app/table/orderPriority": "69900"
-			})]
-
-		columns += [makeCol("mw_peptide", "pl7.app/molecularWeight", "Double",
-			"Molecular Weight (Da, average masses)", dom, {
-				"pl7.app/format": ".1f",
-				"pl7.app/min": "0",
-				"pl7.app/table/visibility": "default",
-				"pl7.app/table/orderPriority": "69800"
-			})]
-
-		columns += [makeCol("pi_peptide", "pl7.app/isoelectricPoint", "Double",
-			"Isoelectric Point (pI)", dom, {
-				"pl7.app/format": ".2f",
-				"pl7.app/min": "0",
-				"pl7.app/max": "14",
-				"pl7.app/table/visibility": "default",
-				"pl7.app/table/orderPriority": "69700"
-			})]
-
-		columns += [makeCol("eox_peptide", "pl7.app/extinctionCoefficientOx", "Double",
-			"Extinction Coeff., Oxidized (M⁻¹cm⁻¹)", dom, {
-				"pl7.app/format": ".0f",
-				"pl7.app/min": "0",
-				"pl7.app/description": "Assumes all Cys are in disulfide bonds. For unprotected linear peptides use the reduced form.",
-				"pl7.app/table/visibility": "optional",
-				"pl7.app/table/orderPriority": "69600"
-			})]
-
-		columns += [makeCol("ered_peptide", "pl7.app/extinctionCoefficientRed", "Double",
-			"Extinction Coeff., Reduced (M⁻¹cm⁻¹)", dom, {
-				"pl7.app/format": ".0f",
-				"pl7.app/min": "0",
-				"pl7.app/description": "Extinction coefficient at 280 nm, disulfide bonds reduced (Cys contribution omitted). A value of 0 means no Tyr or Trp — A280-based quantification is not possible.",
-				"pl7.app/table/visibility": "optional",
-				"pl7.app/table/orderPriority": "69500"
-			})]
-
-		columns += [makeCol("instability_peptide", "pl7.app/instabilityIndex", "Double",
-			"Instability Index", dom, {
-				"pl7.app/format": ".2f",
-				"pl7.app/description": "Guruprasad index — derived from globular proteins. The II > 40 threshold does not apply to short linear peptides; use as a relative composition ranking aid only.",
-				"pl7.app/table/visibility": "default",
-				"pl7.app/table/orderPriority": "69400"
-			})]
-
-		columns += [makeCol("aliphatic_peptide", "pl7.app/aliphaticIndex", "Double",
-			"Aliphatic Index", dom, {
-				"pl7.app/format": ".1f",
-				"pl7.app/min": "0",
-				"pl7.app/description": "Measures fraction of nonpolar aliphatic residues (Ala, Val, Ile, Leu). For short linear peptides, thermostability interpretation does not apply — the Ikai index was derived for globular mesophilic enzymes, and thermostability is not a meaningful concept for unstructured peptides. Useful as a composition indicator and a proxy for hydrophobic character alongside GRAVY — both metrics increase with Ala/Val/Ile/Leu content, but neither has a universal preferred direction for therapeutic peptides.",
-				"pl7.app/table/visibility": "optional",
-				"pl7.app/table/orderPriority": "69300"
-			})]
-
-		columns += [makeCol("aromaticity_peptide", "pl7.app/aromaticity", "Double",
-			"Aromaticity", dom, {
-				"pl7.app/format": ".3f",
-				"pl7.app/min": "0",
-				"pl7.app/max": "1",
-				"pl7.app/description": "Fraction of aromatic residues (Phe, Trp, Tyr).",
-				"pl7.app/table/visibility": "optional",
-				"pl7.app/table/orderPriority": "69200"
-			})]
-
-	} else {
-		// Antibody/TCR mode — CDR3 columns per chain, full-chain when present, Fv when paired.
-		// CDR-H3 (chain A) and CDR-L3 (chain B) carry different descriptions per
-		// pcolumn-spec.md — different developability signals.
-		cdr3ChargeDesc := {
-			A: "Strongly positive CDR3 charge correlates with polyreactivity via electrostatic interactions. No universal preferred direction in Lead Selection. IPC 2.0 peptide pKa set.",
-			B: "Strongly positive CDR-L3 charge contributes to paratope polyreactivity. Strongly negative charge is primarily a PK concern. No universal preferred direction. IPC 2.0 peptide pKa set."
-		}
-		cdr3GravyDesc := {
-			A: "Lower hydrophobicity preferred for developability. CDR3 GRAVY > 0 is an informal aggregation/polyreactivity heuristic.",
-			B: "Same aggregation and polyreactivity signal as CDR-H3 hydrophobicity; lower independent predictive weight. The TAP score uses combined 6-CDR GRAVY — CDR-L3 alone has limited independent validation."
-		}
-		cdr3OrderA := 68000
-		cdr3OrderB := 67700
-		for chain in chains {
-			frag := labelFragments(receptor, chain)
-			cdr3Dom := { "pl7.app/feature": "CDR3", "pl7.app/vdj/scClonotypeChain": chain }
-			chargeOrder := (chain == "A" ? cdr3OrderA : cdr3OrderB)
-			gravyOrder := chargeOrder - 100
-
-			columns += [makeCol("charge_" + chain + "_CDR3", "pl7.app/charge", "Double",
-				frag.cdr3 + " Net Charge (pH 7)", cdr3Dom, {
-					"pl7.app/format": ".2f",
-					"pl7.app/isScore": "true",
-					"pl7.app/description": cdr3ChargeDesc[chain],
-					"pl7.app/table/visibility": "default",
-					"pl7.app/table/orderPriority": string(chargeOrder)
-				})]
-			columns += [makeCol("chargeShift_" + chain + "_CDR3", "pl7.app/chargeShift", "Double",
-				frag.cdr3 + " ΔCharge (pH 7.4 → 6.0)", {
-					"pl7.app/feature": "CDR3",
-					"pl7.app/vdj/scClonotypeChain": chain,
-					"pl7.app/pH/from": CHARGE_SHIFT_PH_FROM,
-					"pl7.app/pH/to": CHARGE_SHIFT_PH_TO
-				}, {
-					"pl7.app/format": ".2f",
-					"pl7.app/description": CHARGE_SHIFT_DESC,
-					"pl7.app/table/visibility": "default",
-					"pl7.app/table/orderPriority": string(chargeOrder - 50)
-				})]
-			columns += [makeCol("gravy_" + chain + "_CDR3", "pl7.app/hydrophobicity", "Double",
-				frag.cdr3 + " Hydrophobicity (GRAVY)", cdr3Dom, {
-					"pl7.app/format": ".3f",
-					"pl7.app/isScore": "true",
-					"pl7.app/score/rankingOrder": "increasing",
-					"pl7.app/description": cdr3GravyDesc[chain],
-					"pl7.app/table/visibility": "default",
-					"pl7.app/table/orderPriority": string(gravyOrder)
-				})]
-		}
-
-		// Full-chain columns (9 per chain when reconstructed).
-		fcOrderBaseA := 67000
-		fcOrderBaseB := 66000
-		for chain in fullChains {
-			frag := labelFragments(receptor, chain)
-			fcDom := { "pl7.app/feature": "VDJRegion", "pl7.app/vdj/scClonotypeChain": chain }
-			base := (chain == "A" ? fcOrderBaseA : fcOrderBaseB)
-			fcLabel := frag.fullChain
-
-			columns += [makeCol("charge_" + chain + "_VDJRegion", "pl7.app/charge", "Double",
-				fcLabel + " Net Charge (pH 7)", fcDom, {
-					"pl7.app/format": ".2f",
-					"pl7.app/isScore": "true",
-					"pl7.app/description": "Non-monotonic vs developability: strongly positive correlates with polyreactivity; strongly negative with rapid clearance.",
-					"pl7.app/table/visibility": "default",
-					"pl7.app/table/orderPriority": string(base)
-				})]
-			columns += [makeCol("pi_" + chain + "_VDJRegion", "pl7.app/isoelectricPoint", "Double",
-				fcLabel + " Isoelectric Point (pI)", fcDom, {
-					"pl7.app/format": ".2f",
-					"pl7.app/isScore": "true",
-					"pl7.app/min": "0",
-					"pl7.app/max": "14",
-					"pl7.app/table/visibility": "default",
-					"pl7.app/table/orderPriority": string(base - 100)
-				})]
-			columns += [makeCol("gravy_" + chain + "_VDJRegion", "pl7.app/hydrophobicity", "Double",
-				fcLabel + " Hydrophobicity (GRAVY)", fcDom, {
-					"pl7.app/format": ".3f",
-					"pl7.app/description": "Framework regions dominate; weak developability signal at chain level — CDR3 hydrophobicity is more discriminating.",
-					"pl7.app/table/visibility": "default",
-					"pl7.app/table/orderPriority": string(base - 200)
-				})]
-			columns += [makeCol("mw_" + chain + "_VDJRegion", "pl7.app/molecularWeight", "Double",
-				fcLabel + " Molecular Weight (Da, average masses)", fcDom, {
-					"pl7.app/format": ".1f",
-					"pl7.app/min": "0",
-					"pl7.app/description": "Unglycosylated sequence mass — does not include N-glycan contributions from any NXS/NXT sequons in the variable region.",
-					"pl7.app/table/visibility": "optional",
-					"pl7.app/table/orderPriority": string(base - 300)
-				})]
-			columns += [makeCol("eox_" + chain + "_VDJRegion", "pl7.app/extinctionCoefficientOx", "Double",
-				fcLabel + " Extinction Coeff., Oxidized (M⁻¹cm⁻¹)", fcDom, {
-					"pl7.app/format": ".0f",
-					"pl7.app/min": "0",
-					"pl7.app/table/visibility": "optional",
-					"pl7.app/table/orderPriority": string(base - 400)
-				})]
-			columns += [makeCol("ered_" + chain + "_VDJRegion", "pl7.app/extinctionCoefficientRed", "Double",
-				fcLabel + " Extinction Coeff., Reduced (M⁻¹cm⁻¹)", fcDom, {
-					"pl7.app/format": ".0f",
-					"pl7.app/min": "0",
-					"pl7.app/table/visibility": "optional",
-					"pl7.app/table/orderPriority": string(base - 500)
-				})]
-			columns += [makeCol("instability_" + chain + "_VDJRegion", "pl7.app/instabilityIndex", "Double",
-				fcLabel + " Instability Index", fcDom, {
-					"pl7.app/format": ".2f",
-					"pl7.app/description": "Guruprasad index, calibrated for in-vitro stability of soluble globular proteins via dipeptide composition. Weak predictor of antibody Tm — use as supplementary ranking aid.",
-					"pl7.app/table/visibility": "optional",
-					"pl7.app/table/orderPriority": string(base - 600)
-				})]
-			columns += [makeCol("aliphatic_" + chain + "_VDJRegion", "pl7.app/aliphaticIndex", "Double",
-				fcLabel + " Aliphatic Index", fcDom, {
-					"pl7.app/format": ".1f",
-					"pl7.app/min": "0",
-					"pl7.app/description": "Ikai aliphatic index, derived from globular mesophilic enzymes. Weak correlation with antibody Tm. No rankingOrder — high values can correlate with aggregation propensity.",
-					"pl7.app/table/visibility": "optional",
-					"pl7.app/table/orderPriority": string(base - 700)
-				})]
-			columns += [makeCol("aromaticity_" + chain + "_VDJRegion", "pl7.app/aromaticity", "Double",
-				fcLabel + " Aromaticity", fcDom, {
-					"pl7.app/format": ".3f",
-					"pl7.app/min": "0",
-					"pl7.app/max": "1",
-					"pl7.app/description": "Fraction of aromatic residues (Phe, Trp, Tyr) over the full chain. Framework dominates; CDR-specific aromaticity is a stronger predictor (Phase 2).",
-					"pl7.app/table/visibility": "optional",
-					"pl7.app/table/orderPriority": string(base - 800)
-				})]
-		}
-
-		// Fv columns — only when both VH and VL full chains reconstructed (antibody only).
-		if hasFv {
-			fvDom := { "pl7.app/feature": "Fv" }
-			columns += [makeCol("charge_Fv", "pl7.app/charge", "Double",
-				"Fv Net Charge (pH 7)", fvDom, {
-					"pl7.app/format": ".2f",
-					"pl7.app/isScore": "true",
-					"pl7.app/table/visibility": "default",
-					"pl7.app/table/orderPriority": "65100"
-				})]
-			columns += [makeCol("chargeShift_Fv", "pl7.app/chargeShift", "Double",
-				"Fv ΔCharge (pH 7.4 → 6.0)", {
-					"pl7.app/feature": "Fv",
-					"pl7.app/pH/from": CHARGE_SHIFT_PH_FROM,
-					"pl7.app/pH/to": CHARGE_SHIFT_PH_TO
-				}, {
-					"pl7.app/format": ".2f",
-					"pl7.app/description": CHARGE_SHIFT_DESC,
-					"pl7.app/table/visibility": "default",
-					"pl7.app/table/orderPriority": "65050"
-				})]
-			columns += [makeCol("pi_Fv", "pl7.app/isoelectricPoint", "Double",
-				"Fv Isoelectric Point (pI)", fvDom, {
-					"pl7.app/format": ".2f",
-					"pl7.app/isScore": "true",
-					"pl7.app/min": "0",
-					"pl7.app/max": "14",
-					"pl7.app/description": "Variable region (VH+VL) only. Fv pI is typically 2–4 pH units higher than whole-IgG cIEF measurements, which include constant regions (IgG1 Fc pI ≈ 5–6).",
-					"pl7.app/table/visibility": "default",
-					"pl7.app/table/orderPriority": "65000"
-				})]
-			columns += [makeCol("eox_Fv", "pl7.app/extinctionCoefficientOx", "Double",
-				"Fv Extinction Coeff., Oxidized (M⁻¹cm⁻¹)", fvDom, {
-					"pl7.app/format": ".0f",
-					"pl7.app/min": "0",
-					"pl7.app/description": "Variable region (VH+VL) only — does not include constant regions. For whole-IgG A280 quantification, use the full-antibody ε.",
-					"pl7.app/table/visibility": "optional",
-					"pl7.app/table/orderPriority": "64900"
-				})]
-			columns += [makeCol("ered_Fv", "pl7.app/extinctionCoefficientRed", "Double",
-				"Fv Extinction Coeff., Reduced (M⁻¹cm⁻¹)", fvDom, {
-					"pl7.app/format": ".0f",
-					"pl7.app/min": "0",
-					"pl7.app/description": "Variable region (VH+VL) only, disulfide bonds reduced (Cys contribution omitted). A value of 0 means no Tyr or Trp — A280-based quantification is not possible.",
-					"pl7.app/table/visibility": "optional",
-					"pl7.app/table/orderPriority": "64800"
-				})]
-			columns += [makeCol("mw_Fv", "pl7.app/molecularWeight", "Double",
-				"Fv Molecular Weight (Da, average masses)", fvDom, {
-					"pl7.app/format": ".1f",
-					"pl7.app/min": "0",
-					"pl7.app/description": "Unglycosylated sequence mass (VH + VL).",
-					"pl7.app/table/visibility": "optional",
-					"pl7.app/table/orderPriority": "64700"
-				})]
-		}
+	colArgs := {
+		mode: mode,
+		receptor: receptor,
+		chains: chains,
+		fullChains: fullChains,
+		hasFv: hasFv
 	}
+	columns := columnSpecs.forPropertiesPf(colArgs)
+	exportColumns := columnSpecs.forExport(colArgs, blockId)
 
 	outputSpecs := {
 		axes: axes,
 		columns: columns,
 		storageFormat: "Parquet",
 		partitionKeyLength: 0
-	}
-
-	// Stamp blockId on the export-only columns (lets downstream blocks distinguish runs).
-	// Build a fresh column with a cloned domain dict — mutating col.spec.domain
-	// in place would also stamp blockId on outputSpecs.columns since both lists
-	// share the same column references.
-	exportColumns := []
-	for col in columns {
-		if col.spec.annotations && col.spec.annotations["pl7.app/isScore"] == "true" {
-			newDomain := {}
-			if col.spec.domain {
-				for k, v in col.spec.domain {
-					newDomain[k] = v
-				}
-			}
-			newDomain["pl7.app/blockId"] = blockId
-			exportColumns += [{
-				column: col.column,
-				id: col.id,
-				naRegex: col.naRegex,
-				allowNA: col.allowNA,
-				spec: {
-					name: col.spec.name,
-					valueType: col.spec.valueType,
-					domain: newDomain,
-					annotations: col.spec.annotations
-				}
-			}]
-		}
 	}
 
 	exportSpecs := {
@@ -502,12 +147,12 @@ self.body(func(args) {
 	resultPframe := pframes.pFrameBuilder()
 	for _, k in maps.getKeys(scalarOut) {
 		v := scalarOut[k]
-		resultPframe.add(k, trace.inject(v.spec), v.data)
+		resultPframe.add(k, v.spec, v.data)
 	}
 	if aaOut != undefined {
 		for _, k in maps.getKeys(aaOut) {
 			v := aaOut[k]
-			resultPframe.add(k, trace.inject(v.spec), v.data)
+			resultPframe.add(k, v.spec, v.data)
 		}
 	}
 	resultPframe = resultPframe.build()

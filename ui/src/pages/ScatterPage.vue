@@ -8,8 +8,6 @@ import { defaultScatterAxes, isNumericScalar, numericScalarsInOrder } from "../u
 
 const app = useApp();
 
-const dataColumnPredicate = (spec: PColumnSpec) => isNumericScalar(spec);
-
 // R19 default + R19a fallback. Returns null while inputs are loading; null
 // keeps GraphMaker in a "no defaults yet" state without applying stale picks.
 const defaultOptions = computed((): PredefinedGraphOption<"scatterplot-umap">[] | null => {
@@ -34,6 +32,14 @@ const defaultOptions = computed((): PredefinedGraphOption<"scatterplot-umap">[] 
     { inputName: "y", selectedSource: y },
   ];
 });
+
+const dataColumnPredicate = (spec: PColumnSpec) =>
+  isNumericScalar(spec) &&
+  spec.annotations?.["pl7.app/isOutput"] === "true" &&
+  !spec.annotations?.["pl7.app/trace"]?.includes("sequence-properties");
+
+const metaColumnPredicate = (spec: PColumnSpec) =>
+  !spec.annotations?.["pl7.app/trace"]?.includes("sequence-properties");
 </script>
 
 <template>
@@ -44,6 +50,7 @@ const defaultOptions = computed((): PredefinedGraphOption<"scatterplot-umap">[] 
     :default-options="defaultOptions"
     :default-palette="{ categorical: 'bright' }"
     :data-column-predicate="dataColumnPredicate"
+    :meta-column-predicate="metaColumnPredicate"
     :status-text="{
       noPframe: { title: 'Select an input dataset on the Main tab to plot.' },
     }"
