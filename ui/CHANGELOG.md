@@ -1,5 +1,13 @@
 # @platforma-open/MiLaboratories.sequence-properties.ui
 
+## 1.2.2
+
+### Patch Changes
+
+- 73b4e4d: Enable linker usage to show plot options
+- Updated dependencies [73b4e4d]
+  - @platforma-open/milaboratories.sequence-properties.model@1.2.2
+
 ## 1.2.1
 
 ### Patch Changes
