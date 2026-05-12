@@ -12,8 +12,6 @@ import {
 
 const app = useApp();
 
-const dataColumnPredicate = (spec: PColumnSpec) => isNumericScalar(spec);
-
 // R20 default + R20a fallback.
 const defaultOptions = computed((): PredefinedGraphOption<"histogram">[] | null => {
   const cols = app.model.outputs.propertiesPfCols;
@@ -25,6 +23,14 @@ const defaultOptions = computed((): PredefinedGraphOption<"histogram">[] | null 
 
   return [{ inputName: "value", selectedSource: metric }];
 });
+
+const dataColumnPredicate = (spec: PColumnSpec) =>
+  isNumericScalar(spec) &&
+  spec.annotations?.["pl7.app/isOutput"] === "true" &&
+  !spec.annotations?.["pl7.app/trace"]?.includes("sequence-properties");
+
+const metaColumnPredicate = (spec: PColumnSpec) =>
+  !spec.annotations?.["pl7.app/trace"]?.includes("sequence-properties");
 </script>
 
 <template>
@@ -34,6 +40,7 @@ const defaultOptions = computed((): PredefinedGraphOption<"histogram">[] | null 
     :p-frame="app.model.outputs.propertiesPfHandle"
     :default-options="defaultOptions"
     :data-column-predicate="dataColumnPredicate"
+    :meta-column-predicate="metaColumnPredicate"
     :status-text="{
       noPframe: { title: 'Select an input dataset on the Main tab to plot.' },
     }"
