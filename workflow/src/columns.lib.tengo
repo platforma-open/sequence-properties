@@ -1,17 +1,23 @@
 // Output PColumn specs emitted by sequence-properties.
 //
-// Two getters wrap a canonical column list and apply per-consumer annotations:
+// Public surface:
 //
-//   - `forPropertiesPf(args)`     — every column, `pl7.app/isOutput: "true"`
-//                                   added on top of the canonical annotations.
-//   - `forExport(args, blockId)`  — filtered to `pl7.app/isScore: "true"`
-//                                   columns; domain cloned + `pl7.app/blockId`
-//                                   stamped on so downstream blocks can
-//                                   distinguish runs.
+//   - `buildColumns(args)`           — canonical scalar-property column list.
+//                                       Returns `[{column, id, naRegex,
+//                                       allowNA, spec}, ...]` with feature-
+//                                       specific domains and annotations.
+//                                       No blockId, no isOutput, no trace
+//                                       — those are stamped on by the caller
+//                                       at pframe-build time.
+//   - `aaFractionColumn()`           — 2-axis AA-fraction column descriptor
+//                                       (peptide mode only).
+//   - `cloneSpec(spec, dExtras, aExtras)` — spec-cloning helper used by the
+//                                       caller to layer blockId / isOutput /
+//                                       any other per-consumer overrides.
 //
 // `args` shape:
 //   { mode, receptor, chains, fullChains, hasFv }
-// — identical to the relevant subset of `process.tpl.tengo`'s `params`.
+// — identical to the relevant subset of `main.tpl.tengo`'s plan.
 
 ll := import("@platforma-sdk/workflow-tengo:ll")
 
@@ -379,11 +385,18 @@ buildColumns := func(args) {
 
 // ---------------------------------------------------------------------------
 // Spec-cloning helper. Builds a fresh spec dict with optional domain and
-// annotation extras. Used by both getters so the two outputs never share
-// dict references.
+// annotation extras. Callers use this to layer per-consumer overrides
+// (e.g. `pl7.app/blockId` in domain, `pl7.app/isOutput` in annotations).
 // ---------------------------------------------------------------------------
 
 cloneSpec := func(spec, domainExtras, annotationExtras) {
+	// Shallow-copy every top-level key (kind, name, valueType, axesSpec, ...)
+	// so specs already filled in by xsv.importFile keep their kind + axesSpec.
+	out := {}
+	for k, v in spec { out[k] = v }
+
+	// Overlay domain — always build a fresh dict so the result never aliases
+	// the caller's input domain.
 	newDomain := {}
 	if spec.domain {
 		for k, v in spec.domain { newDomain[k] = v }
@@ -391,6 +404,9 @@ cloneSpec := func(spec, domainExtras, annotationExtras) {
 	if domainExtras {
 		for k, v in domainExtras { newDomain[k] = v }
 	}
+	out.domain = newDomain
+
+	// Overlay annotations — same fresh-dict rule.
 	newAnnotations := {}
 	if spec.annotations {
 		for k, v in spec.annotations { newAnnotations[k] = v }
@@ -398,49 +414,57 @@ cloneSpec := func(spec, domainExtras, annotationExtras) {
 	if annotationExtras {
 		for k, v in annotationExtras { newAnnotations[k] = v }
 	}
-	return {
-		name: spec.name,
-		valueType: spec.valueType,
-		domain: newDomain,
-		annotations: newAnnotations
-	}
+	out.annotations = newAnnotations
+
+	return out
 }
 
-wrap := func(col, newSpec) {
+// ---------------------------------------------------------------------------
+// AA fraction (peptide mode) — single 2-axis column descriptor.
+// Lives here so the entire column inventory of the block is in one place.
+// ---------------------------------------------------------------------------
+
+aaFractionColumn := func(keyAxisSpec) {
 	return {
-		column: col.column,
-		id: col.id,
-		naRegex: col.naRegex,
-		allowNA: col.allowNA,
-		spec: newSpec
+		axes: [
+			{ column: "entity_key", spec: keyAxisSpec },
+			{
+				column: "aminoAcid",
+				spec: {
+					name: "pl7.app/aminoAcid",
+					type: "String",
+					annotations: { "pl7.app/label": "Amino Acid" }
+				}
+			}
+		],
+		column: {
+			column: "value",
+			id: "aaFraction",
+			naRegex: "",
+			allowNA: true,
+			spec: {
+				name: "pl7.app/aaFraction",
+				valueType: "Double",
+				domain: { "pl7.app/feature": "peptide" },
+				annotations: {
+					"pl7.app/label": "AA Fraction",
+					"pl7.app/format": ".3f",
+					"pl7.app/min": "0",
+					"pl7.app/max": "1",
+					"pl7.app/table/visibility": "optional",
+					"pl7.app/table/orderPriority": "69000"
+				}
+			}
+		}
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Public getters.
+// Public exports.
 // ---------------------------------------------------------------------------
-
-forPropertiesPf := func(args) {
-	cols := buildColumns(args)
-	out := []
-	for col in cols {
-		out += [wrap(col, cloneSpec(col.spec, undefined, { "pl7.app/isOutput": "true" }))]
-	}
-	return out
-}
-
-forExport := func(args, blockId) {
-	cols := buildColumns(args)
-	out := []
-	for col in cols {
-		if !col.spec.annotations { continue }
-		if col.spec.annotations["pl7.app/isScore"] != "true" { continue }
-		out += [wrap(col, cloneSpec(col.spec, { "pl7.app/blockId": blockId }, undefined))]
-	}
-	return out
-}
 
 export ll.toStrict({
-	forPropertiesPf: forPropertiesPf,
-	forExport: forExport
+	buildColumns: buildColumns,
+	aaFractionColumn: aaFractionColumn,
+	cloneSpec: cloneSpec
 })
