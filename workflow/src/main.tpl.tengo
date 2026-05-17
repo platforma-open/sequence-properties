@@ -1,8 +1,9 @@
 // Sequence Properties — workflow root.
 //
-// Detects modality (peptide vs antibody/TCR), collects amino-acid sequence columns,
-// builds a per-entity TSV, runs the Python computation step, and hands off to
-// process.tpl.tengo for output PColumn construction.
+// Detects modality (peptide vs antibody/TCR), collects amino-acid sequence
+// columns, builds a per-entity TSV, runs the Python computation step,
+// imports its outputs into a unified PColumn pFrame, and defers the
+// info-blob assembly to info.tpl.tengo (which waits on Python's stats).
 
 wf := import("@platforma-sdk/workflow-tengo:workflow")
 exec := import("@platforma-sdk/workflow-tengo:exec")
@@ -11,12 +12,15 @@ render := import("@platforma-sdk/workflow-tengo:render")
 smart := import("@platforma-sdk/workflow-tengo:smart")
 ll := import("@platforma-sdk/workflow-tengo:ll")
 pframes := import("@platforma-sdk/workflow-tengo:pframes")
+xsv := import("@platforma-sdk/workflow-tengo:pframes.xsv")
+pSpec := import("@platforma-sdk/workflow-tengo:pframes.spec")
 canonical := import("@platforma-sdk/workflow-tengo:canonical")
 maps := import("@platforma-sdk/workflow-tengo:maps")
 constants := import("@platforma-sdk/workflow-tengo:constants")
 messages := import(":messages")
+columnSpecs := import(":columns")
 
-processTpl := assets.importTemplate(":process")
+infoTpl := assets.importTemplate(":info")
 
 // JSON resource with sorted-key canonical bytes. smart.createJsonResource uses
 // Tengo's stdlib json.encode, which preserves Go's randomized map iteration —
@@ -371,41 +375,98 @@ wf.body(func(args) {
 		}
 	}
 
-	// Hand off to process template for column specs, pFrame export, and
-	// info-blob assembly. The info blob depends on Python's stats output, so
-	// it builds inside the render template rather than at workflow body time.
-	processResult := render.create(processTpl, {
-		blockId: blockId,
-		propertiesTsv: propertiesTsv,
-		aaFractionTsv: aaFractionTsv,
+	// Defer info-blob assembly to infoTpl — it waits for Python's stats
+	// resource to resolve, then computes VHH / instability-floor messages on
+	// top of `infoMessages`. The template inputs are blockId-independent so
+	// the render dedups across block instances with identical inputs.
+	infoResult := render.create(infoTpl, {
 		stats: statsResource,
 		params: canonicalJsonResource({
-			datasetSpec: datasetSpec,
-			keyAxisIdx: keyAxisIdx,
 			mode: mode,
 			receptor: receptor,
-			chains: chainList,
 			chainsWithCdr3: chainsWithCdr3,
-			fullChains: fullChainList,
-			hasFv: hasFv,
 			coverageTier: coverageTier,
 			infoMessages: infoMessages
 		})
 	})
+	infoBlob := infoResult.output("info", 24 * 60 * 60 * 1000)
 
-	// Cache outputs for 24 hours (ms) to skip re-running identical work.
-	propertiesPf := processResult.output("propertiesPf", 24 * 60 * 60 * 1000)
-	exportPframe := processResult.output("exportPframe", 24 * 60 * 60 * 1000)
-	infoBlob := processResult.output("info", 24 * 60 * 60 * 1000)
+	// Build the canonical column list (no blockId, no isOutput, no trace) and
+	// import the Python TSV outputs into parquet-backed PColumn data. With
+	// canonical specs the xsv.importFile renders dedup across blocks; only
+	// the spec-rewrap into the unified pFrame below is per-block.
+	colArgs := {
+		mode: mode,
+		receptor: receptor,
+		chains: chainList,
+		fullChains: fullChainList,
+		hasFv: hasFv
+	}
+	// Override the input axis visibility so the clone-id / variant-key column
+	// shows up by default in the block's table. Upstream typically marks it
+	// hidden — fine for narrow per-block uses, but here it's the join key the
+	// user reads against the property values, so it should be visible.
+	visibleKeyAxisSpec := columnSpecs.cloneSpec(keyAxisSpec, undefined, {
+		"pl7.app/table/visibility": "default"
+	})
+	canonicalCols := columnSpecs.buildColumns(colArgs)
+	scalarOut := xsv.importFile(propertiesTsv, "tsv", {
+		axes: [{ column: "entity_key", spec: visibleKeyAxisSpec }],
+		columns: canonicalCols,
+		storageFormat: "Parquet",
+		partitionKeyLength: 0
+	}, { splitDataAndSpec: true, cpu: 1, mem: "4GiB" })
+
+	aaOut := undefined
+	if mode == "peptide" {
+		aaCol := columnSpecs.aaFractionColumn(visibleKeyAxisSpec)
+		aaOut = xsv.importFile(aaFractionTsv, "tsv", {
+			axes: aaCol.axes,
+			columns: [aaCol.column],
+			storageFormat: "Parquet",
+			partitionKeyLength: 0
+		}, { splitDataAndSpec: true, cpu: 1, mem: "4GiB" })
+	}
+
+	// Stamp every column's spec with `pl7.app/blockId` in domain (for run
+	// attribution) and the upstream trace (so downstream blocks see the full
+	// provenance). The same pFrame is published both as the block's UI output
+	// and as the result-pool export — one canonical resource, two consumers.
+	// The trace is also how the block's own UI distinguishes our property
+	// columns from upstream metadata columns mixed into propertiesPfHandle.
+	trace := pSpec.makeTrace(datasetSpec, {
+		type: "milaboratories.sequence-properties",
+		importance: 30,
+		label: "Sequence Properties",
+		id: blockId
+	})
+	stamp := func(spec) {
+		return trace.inject(columnSpecs.cloneSpec(spec,
+			{ "pl7.app/blockId": blockId },
+			undefined))
+	}
+
+	pf := pframes.pFrameBuilder()
+	for _, k in maps.getKeys(scalarOut) {
+		v := scalarOut[k]
+		pf.add(k, stamp(v.spec), v.data)
+	}
+	if aaOut != undefined {
+		for _, k in maps.getKeys(aaOut) {
+			v := aaOut[k]
+			pf.add(k, stamp(v.spec), v.data)
+		}
+	}
+	pf = pf.build()
 
 	return {
 		outputs: {
-			propertiesPf: propertiesPf,
+			propertiesPf: pframes.exportFrame(pf),
 			info: infoBlob,
 			processingLog: processingLog
 		},
 		exports: {
-			properties: exportPframe
+			properties: pf
 		}
 	}
 })
