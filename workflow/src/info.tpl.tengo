@@ -1,0 +1,52 @@
+// Info-blob builder. Runs after the Python step completes (depends on its
+// `stats.json` output) and emits the JSON resource consumed by the model's
+// `info` output. Kept as a separate template — not inlined into main —
+// because it must wait for the Python step's stats resource to resolve,
+// and as a deferred render it dedups across block instances with identical
+// inputs.
+
+self := import("@platforma-sdk/workflow-tengo:tpl")
+smart := import("@platforma-sdk/workflow-tengo:smart")
+canonical := import("@platforma-sdk/workflow-tengo:canonical")
+constants := import("@platforma-sdk/workflow-tengo:constants")
+messages := import(":messages")
+
+self.defineOutputs("info")
+
+self.body(func(args) {
+	params := args.params
+	mode := params.mode
+	receptor := params.receptor
+	chainsWithCdr3 := params.chainsWithCdr3
+	coverageTier := params.coverageTier
+	infoMessages := params.infoMessages
+
+	stats := args.stats.getDataAsJson()
+	medians := stats.medianCdr3Length
+
+	// R11c — single-domain antibodies (nanobodies / VHH) miss the IgG-calibrated
+	// CDR-H3 length risk thresholds. Surface an info message when the dataset
+	// looks like VHH (heavy chain only, long median CDR-H3 ≥ 16 aa).
+	if receptor == "IG" && len(chainsWithCdr3) == 1 && chainsWithCdr3[0] == "A" {
+		medA := medians["A"]
+		if medA != undefined && medA >= 16 {
+			infoMessages += [messages.vhh()]
+		}
+	}
+
+	// R9 — Instability Index is NA for peptides shorter than 10 aa. Surface a
+	// banner in peptide mode whenever any row falls below the floor so the
+	// user understands why the Instability Index column is blank.
+	if mode == "peptide" && stats.hasPeptideBelowInstabilityFloor == true {
+		infoMessages += [messages.peptidesShortInstability()]
+	}
+
+	return {
+		info: smart.createValueResource(constants.RTYPE_JSON, canonical.encode({
+			mode: mode,
+			receptor: receptor,
+			coverageTier: coverageTier,
+			messages: infoMessages
+		}))
+	}
+})
