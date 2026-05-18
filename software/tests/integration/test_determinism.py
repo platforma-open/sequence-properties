@@ -72,9 +72,7 @@ def _run_cli_subprocess(
         text=True,
         check=False,
     )
-    assert result.returncode == 0, (
-        f"main.py failed (rc={result.returncode}); stderr=\n{result.stderr}"
-    )
+    assert result.returncode == 0, f"main.py failed (rc={result.returncode}); stderr=\n{result.stderr}"
 
 
 @pytest.fixture()
@@ -122,15 +120,12 @@ def _assert_all_three_byte_identical(a: dict[str, Path], b: dict[str, Path]) -> 
     }
     for name in _OUTPUT_FILE_NAMES:
         assert hashes_a[name] == hashes_b[name], (
-            f"{name} diverged across subprocess runs: "
-            f"sha256(A)={hashes_a[name]} sha256(B)={hashes_b[name]}"
+            f"{name} diverged across subprocess runs: sha256(A)={hashes_a[name]} sha256(B)={hashes_b[name]}"
         )
 
 
 # Peptide mode — exercises the scalar-properties + AA-fraction + stats paths.
-def test_peptide_outputs_byte_stable_across_subprocess_runs(
-    tmp_path: Path, _peptide_inputs: tuple[Path, Path]
-) -> None:
+def test_peptide_outputs_byte_stable_across_subprocess_runs(tmp_path: Path, _peptide_inputs: tuple[Path, Path]) -> None:
     in_tsv, plan_json = _peptide_inputs
 
     a = _run_paths(tmp_path, "_a")
@@ -152,20 +147,36 @@ _ANTIBODY_COLUMNS = (
 _ANTIBODY_ROWS = [
     {
         "entity_key": "c1",
-        "A_FR1": "EVQLVES", "A_CDR1": "GFTFSSY", "A_FR2": "AMSWVRQ",
-        "A_CDR2": "ISGSGGS", "A_FR3": "TYYAESVKGRFTI", "A_CDR3": "CARDYW",
+        "A_FR1": "EVQLVES",
+        "A_CDR1": "GFTFSSY",
+        "A_FR2": "AMSWVRQ",
+        "A_CDR2": "ISGSGGS",
+        "A_FR3": "TYYAESVKGRFTI",
+        "A_CDR3": "CARDYW",
         "A_FR4": "WGQGTLV",
-        "B_FR1": "DIQMTQS", "B_CDR1": "QSISSY", "B_FR2": "LNWYQQK",
-        "B_CDR2": "AASSLQS", "B_FR3": "GVPSRFSGSG", "B_CDR3": "CQQYNS",
+        "B_FR1": "DIQMTQS",
+        "B_CDR1": "QSISSY",
+        "B_FR2": "LNWYQQK",
+        "B_CDR2": "AASSLQS",
+        "B_FR3": "GVPSRFSGSG",
+        "B_CDR3": "CQQYNS",
         "B_FR4": "FGQGTKV",
     },
     {
         "entity_key": "c2",
-        "A_FR1": "EVQLVES", "A_CDR1": "GFTFSSY", "A_FR2": "AMSWVRQ",
-        "A_CDR2": "ISGSGGS", "A_FR3": "TYYAESVKGRFTI", "A_CDR3": "CARGFW",
+        "A_FR1": "EVQLVES",
+        "A_CDR1": "GFTFSSY",
+        "A_FR2": "AMSWVRQ",
+        "A_CDR2": "ISGSGGS",
+        "A_FR3": "TYYAESVKGRFTI",
+        "A_CDR3": "CARGFW",
         "A_FR4": "WGQGTLV",
-        "B_FR1": "DIQMTQS", "B_CDR1": "QSISSY", "B_FR2": "LNWYQQK",
-        "B_CDR2": "AASSLQS", "B_FR3": "GVPSRFSGSG", "B_CDR3": "CQHFSS",
+        "B_FR1": "DIQMTQS",
+        "B_CDR1": "QSISSY",
+        "B_FR2": "LNWYQQK",
+        "B_CDR2": "AASSLQS",
+        "B_FR3": "GVPSRFSGSG",
+        "B_CDR3": "CQHFSS",
         "B_FR4": "FGQGTKV",
     },
 ]
