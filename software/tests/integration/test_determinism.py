@@ -32,6 +32,8 @@ import pytest
 # invocations — for those we point Python at the script directly.
 _MAIN_PY = Path(__file__).resolve().parents[2] / "src" / "main.py"
 
+_OUTPUT_FILE_NAMES = ("properties.tsv", "aa_fraction.tsv", "stats.json")
+
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -75,29 +77,6 @@ def _run_cli_subprocess(
     assert result.returncode == 0, f"main.py failed (rc={result.returncode}); stderr=\n{result.stderr}"
 
 
-@pytest.fixture()
-def _peptide_inputs(tmp_path: Path) -> tuple[Path, Path]:
-    """Shared peptide-mode fixture for cross-process byte-stability."""
-    in_tsv = tmp_path / "input.tsv"
-    plan_json = tmp_path / "plan.json"
-    _write_tsv(
-        in_tsv,
-        [
-            {"entity_key": "p1", "sequence": "ACDEFGHIKL"},
-            {"entity_key": "p2", "sequence": "MNPQRSTVWY"},
-            {"entity_key": "p3", "sequence": "GFTFSSYAMS"},
-            {"entity_key": "p4", "sequence": "KKKKHHHHHH"},
-            {"entity_key": "p5", "sequence": "DDDDEEEEEE"},
-        ],
-        ["entity_key", "sequence"],
-    )
-    plan_json.write_text(json.dumps({"mode": "peptide"}))
-    return in_tsv, plan_json
-
-
-_OUTPUT_FILE_NAMES = ("properties.tsv", "aa_fraction.tsv", "stats.json")
-
-
 def _run_paths(tmp_path: Path, suffix: str) -> dict[str, Path]:
     return {
         "out_tsv": tmp_path / f"properties{suffix}.tsv",
@@ -107,7 +86,7 @@ def _run_paths(tmp_path: Path, suffix: str) -> dict[str, Path]:
 
 
 def _assert_all_three_byte_identical(a: dict[str, Path], b: dict[str, Path]) -> None:
-    """Sibling-output rule: every file the binary writes gets its own check."""
+    """Sibling-output rule: every output file the CLI writes gets its own check."""
     hashes_a = {
         "properties.tsv": _sha256(a["out_tsv"]),
         "aa_fraction.tsv": _sha256(a["aa_tsv"]),
@@ -124,27 +103,25 @@ def _assert_all_three_byte_identical(a: dict[str, Path], b: dict[str, Path]) -> 
         )
 
 
-# Peptide mode — exercises the scalar-properties + AA-fraction + stats paths.
-def test_peptide_outputs_byte_stable_across_subprocess_runs(tmp_path: Path, _peptide_inputs: tuple[Path, Path]) -> None:
-    in_tsv, plan_json = _peptide_inputs
+# Peptide mode exercises the scalar-properties + AA-fraction + stats paths.
+_PEPTIDE_ROWS: list[dict[str, str]] = [
+    {"entity_key": "p1", "sequence": "ACDEFGHIKL"},
+    {"entity_key": "p2", "sequence": "MNPQRSTVWY"},
+    {"entity_key": "p3", "sequence": "GFTFSSYAMS"},
+    {"entity_key": "p4", "sequence": "KKKKHHHHHH"},
+    {"entity_key": "p5", "sequence": "DDDDEEEEEE"},
+]
+_PEPTIDE_COLUMNS = ["entity_key", "sequence"]
+_PEPTIDE_PLAN: dict[str, object] = {"mode": "peptide"}
 
-    a = _run_paths(tmp_path, "_a")
-    b = _run_paths(tmp_path, "_b")
-
-    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, **a)
-    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, **b)
-
-    _assert_all_three_byte_identical(a, b)
-
-
-# Antibody mode — exercises per-chain CDR3 + full-chain + Fv computation paths
+# Antibody mode exercises per-chain CDR3 + full-chain + Fv computation paths
 # that peptide mode does not touch. Same sibling-rule coverage.
 _ANTIBODY_COLUMNS = (
     ["entity_key"]
     + [f"A_{f}" for f in ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")]
     + [f"B_{f}" for f in ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")]
 )
-_ANTIBODY_ROWS = [
+_ANTIBODY_ROWS: list[dict[str, str]] = [
     {
         "entity_key": "c1",
         "A_FR1": "EVQLVES",
@@ -180,7 +157,7 @@ _ANTIBODY_ROWS = [
         "B_FR4": "FGQGTKV",
     },
 ]
-_ANTIBODY_PLAN = {
+_ANTIBODY_PLAN: dict[str, object] = {
     "mode": "antibody_tcr_legacy_bulk",
     "receptor": "IG",
     "chains": ["A", "B"],
@@ -189,11 +166,27 @@ _ANTIBODY_PLAN = {
 }
 
 
-def test_antibody_outputs_byte_stable_across_subprocess_runs(tmp_path: Path) -> None:
+# Two subprocess runs on the same input must produce byte-identical output
+# files. Catches future hash-order regressions (Polars group_by, set() iter,
+# etc.) that pass in-process tests but break across separate worker processes.
+@pytest.mark.parametrize(
+    "rows, columns, plan",
+    [
+        (_PEPTIDE_ROWS, _PEPTIDE_COLUMNS, _PEPTIDE_PLAN),
+        (_ANTIBODY_ROWS, _ANTIBODY_COLUMNS, _ANTIBODY_PLAN),
+    ],
+    ids=["peptide", "antibody"],
+)
+def test_outputs_byte_stable_across_subprocess_runs(
+    tmp_path: Path,
+    rows: list[dict[str, str]],
+    columns: list[str],
+    plan: dict[str, object],
+) -> None:
     in_tsv = tmp_path / "input.tsv"
     plan_json = tmp_path / "plan.json"
-    _write_tsv(in_tsv, _ANTIBODY_ROWS, _ANTIBODY_COLUMNS)
-    plan_json.write_text(json.dumps(_ANTIBODY_PLAN))
+    _write_tsv(in_tsv, rows, columns)
+    plan_json.write_text(json.dumps(plan))
 
     a = _run_paths(tmp_path, "_a")
     b = _run_paths(tmp_path, "_b")
