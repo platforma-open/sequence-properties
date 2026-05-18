@@ -434,10 +434,19 @@ wf.body(func(args) {
 	// and as the result-pool export — one canonical resource, two consumers.
 	// The trace is also how the block's own UI distinguishes our property
 	// columns from upstream metadata columns mixed into propertiesPfHandle.
+	// Trace label resolves to customBlockLabel || defaultBlockLabel so
+	// downstream pickers (Lead Selection etc.) can distinguish co-instances
+	// by the user's PlBlockPage subtitle override. Model defaults
+	// customBlockLabel to "" (never undefined). Same pattern as
+	// clonotype-clustering and titeseq-analysis PR #13.
+	traceLabel := args.customBlockLabel
+	if traceLabel == "" {
+		traceLabel = args.defaultBlockLabel
+	}
 	trace := pSpec.makeTrace(datasetSpec, {
 		type: "milaboratories.sequence-properties",
 		importance: 30,
-		label: "Sequence Properties",
+		label: traceLabel,
 		id: blockId
 	})
 	stamp := func(spec) {
