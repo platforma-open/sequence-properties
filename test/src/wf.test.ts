@@ -225,6 +225,7 @@ describe('dedup', () => {
       expect(aCols).toBeTruthy();
       expect(bCols).toBeTruthy();
       expect(Array.isArray(aCols)).toBe(true);
+      expect((aCols as unknown[]).length).toBeGreaterThan(0);
       expect((aCols as unknown[]).length).toBe((bCols as unknown[]).length);
 
       // Per-instance trace.id is what lets downstream pickers disambiguate
