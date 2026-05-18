@@ -12,11 +12,22 @@ export type BlockDataV1 = {
   defaultBlockLabel?: string;
 };
 
-export type BlockData = Omit<BlockDataV1, "defaultBlockLabel"> & {
-  defaultBlockLabel: string;
-  customBlockLabel: string;
+// V2 shape — the on-disk shape produced by the `Ver_2026_05_05` migration
+// that was already deployed in main before this PR. Used as the input type
+// for the new `Ver_2026_05_18` step that backfills the label fields onto
+// projects tagged at the already-deployed V2 version. customBlockLabel is
+// declared optional here so the V2→V2.1 migration can read-or-default any
+// value an interim deployment may have written.
+export type BlockDataV2 = Omit<BlockDataV1, "defaultBlockLabel"> & {
+  defaultBlockLabel?: string;
+  customBlockLabel?: string;
   graphStateScatter: GraphMakerState;
   graphStateHistogram: GraphMakerState;
+};
+
+export type BlockData = Omit<BlockDataV2, "defaultBlockLabel"> & {
+  defaultBlockLabel: string;
+  customBlockLabel: string;
 };
 
 export type BlockArgs = {
