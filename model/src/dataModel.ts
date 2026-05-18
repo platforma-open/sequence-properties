@@ -21,11 +21,15 @@ export const blockDataModel = new DataModelBuilder()
   .from<BlockDataV1>("Ver_2026_04_28")
   .migrate<BlockData>("Ver_2026_05_05", (v1) => ({
     ...v1,
+    defaultBlockLabel: v1.defaultBlockLabel ?? "",
+    customBlockLabel: "",
     graphStateScatter: { ...DEFAULT_SCATTER_STATE },
     graphStateHistogram: { ...DEFAULT_HISTOGRAM_STATE },
   }))
   .init(() => ({
     tableState: createPlDataTableStateV2(),
+    defaultBlockLabel: "",
+    customBlockLabel: "",
     graphStateScatter: { ...DEFAULT_SCATTER_STATE },
     graphStateHistogram: { ...DEFAULT_HISTOGRAM_STATE },
   }));

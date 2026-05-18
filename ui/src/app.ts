@@ -6,6 +6,8 @@ import MainPage from "./pages/MainPage.vue";
 import ScatterPage from "./pages/ScatterPage.vue";
 
 export const sdkPlugin = defineAppV3(platforma, (app) => {
+  app.model.data.customBlockLabel ??= "";
+
   watchEffect(() => {
     const anchor = app.model.data.inputAnchor;
     const opts = app.model.outputs.inputOptions ?? [];

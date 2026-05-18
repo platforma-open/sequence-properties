@@ -41,6 +41,8 @@ export const platforma = BlockModelV3.create(blockDataModel)
     }
     return {
       inputAnchor: data.inputAnchor,
+      defaultBlockLabel: data.defaultBlockLabel,
+      customBlockLabel: data.customBlockLabel,
     };
   })
   .output("inputOptions", (ctx) => ctx.resultPool.getOptions(inputAnchorSpecs))
@@ -107,7 +109,7 @@ export const platforma = BlockModelV3.create(blockDataModel)
     return pCols.map((c) => ({ columnId: c.id, spec: c.spec }) satisfies PColumnIdAndSpec);
   })
   .title(() => "Sequence Properties")
-  .subtitle((ctx) => ctx.data.defaultBlockLabel ?? "")
+  .subtitle((ctx) => ctx.data.customBlockLabel || ctx.data.defaultBlockLabel)
   .sections(() => [
     { type: "link", href: "/", label: "Main" },
     { type: "link", href: "/scatter", label: "Property Relationships" },
