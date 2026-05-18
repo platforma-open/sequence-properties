@@ -40,8 +40,72 @@ export type TestCtx = {
 /**
  * Add the sequence-properties block under test.
  */
-export async function addSequenceProperties(ctx: TestCtx): Promise<string> {
-  return await ctx.rawPrj.addBlock('Sequence Properties', seqPropsBlockSpec);
+export async function addSequenceProperties(ctx: TestCtx, label = 'Sequence Properties'): Promise<string> {
+  return await ctx.rawPrj.addBlock(label, seqPropsBlockSpec);
+}
+
+/**
+ * Add samples-and-data + mixcr-clonotyping-2 wired to fastq fixtures, plus
+ * two sequence-properties blocks pending an `inputAnchor` from the caller.
+ *
+ * Locks PR #9's canonical-specs-in / stamp-out invariant. If a future change
+ * leaks blockId back into a pure template's inputs (or into the column specs
+ * passed to `xsv.importFile`), two co-instances will trigger CIDConflictError
+ * — this helper makes that regression surface as a test failure.
+ */
+export async function setupTwoSeqPropsCoInstances(
+  ctx: TestCtx,
+  opts: {
+    preset?: string;
+    chains?: string[];
+    r1Path: string;
+    r2Path: string;
+  },
+): Promise<{
+  sndBlockId: string;
+  clonotypingBlockId: string;
+  seqPropsBlockIdA: string;
+  seqPropsBlockIdB: string;
+}> {
+  const preset = opts.preset ?? '10x-sc-xcr-vdj-rhapsody';
+  const chains = opts.chains ?? ['IGHeavy', 'IGLight'];
+
+  const { rawPrj, helpers } = ctx;
+  const sndBlockId = await rawPrj.addBlock('Samples & Data', samplesAndDataBlockSpec);
+  const clonotypingBlockId = await rawPrj.addBlock('MiXCR Clonotyping', mixcrClonotypingBlockSpec);
+  const seqPropsBlockIdA = await addSequenceProperties(ctx, 'Sequence Properties A');
+  const seqPropsBlockIdB = await addSequenceProperties(ctx, 'Sequence Properties B');
+
+  const sample1Id = uniquePlId();
+  const dataset1Id = uniquePlId();
+  const r1Handle = await helpers.getLocalFileHandle(opts.r1Path);
+  const r2Handle = await helpers.getLocalFileHandle(opts.r2Path);
+
+  await rawPrj.setBlockArgs(sndBlockId, {
+    metadata: [],
+    sampleIds: [sample1Id],
+    sampleLabelColumnLabel: 'Sample Name',
+    sampleLabels: { [sample1Id]: 'Sample 1' },
+    datasets: [
+      {
+        id: dataset1Id,
+        label: 'Dataset 1',
+        content: {
+          type: 'Fastq',
+          readIndices: ['R1', 'R2'],
+          gzipped: true,
+          data: { [sample1Id]: { R1: r1Handle, R2: r2Handle } },
+        },
+      },
+    ],
+  });
+
+  await rawPrj.setBlockArgs(clonotypingBlockId, {
+    preset: { type: 'name', name: preset },
+    chains,
+  });
+
+  return { sndBlockId, clonotypingBlockId, seqPropsBlockIdA, seqPropsBlockIdB };
 }
 
 /**
