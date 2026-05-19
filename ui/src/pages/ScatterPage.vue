@@ -33,17 +33,22 @@ const defaultOptions = computed((): PredefinedGraphOption<"scatterplot-umap">[] 
   ];
 });
 
-// Data = this block's own scalar properties. The propertiesPfHandle contains
-// pCols (ours, trace-injected) ∪ upstreamMeta (filtered out our trace at the
-// model layer). Our trace identifies our data candidates.
+// Data = own scalar properties. propertiesPfHandle holds our trace-injected
+// pCols plus single-axis upstream metadata; the trace match isolates ours
+// to drive default X/Y picks.
 const dataColumnPredicate = (spec: PColumnSpec) =>
   isNumericScalar(spec) &&
   spec.annotations?.["pl7.app/trace"]?.includes("sequence-properties") === true;
 
-// Meta = upstream columns only (sample groups, patient IDs, etc.) — anything
-// without our trace.
-const metaColumnPredicate = (spec: PColumnSpec) =>
-  !spec.annotations?.["pl7.app/trace"]?.includes("sequence-properties");
+// Meta = every column in the pframe. The model layer already curates the
+// set (own scalars + single-axis upstream metadata; aaFraction excluded for
+// the cell-count guard), so anything that reaches us is a valid dimension
+// for Filter / Grouping-Color / Highlight / Size / Tab / Tooltip / Label /
+// Additional-curves. Own scalars deliberately appear in both data and meta
+// roles — users color the scatter by, e.g., Aromaticity while plotting
+// Charge vs Hydrophobicity. If multi-axis columns later enter the pframe,
+// add an `isSingleAxis` guard here.
+const metaColumnPredicate = (_spec: PColumnSpec) => true;
 </script>
 
 <template>
