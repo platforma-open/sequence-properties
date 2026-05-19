@@ -13,7 +13,8 @@
     "@milaboratories/graph-maker": "catalog:",
     "@platforma-open/milaboratories.sequence-properties.model": "workspace:*",
     "@platforma-sdk/model": "catalog:",
-    "@platforma-sdk/ui-vue": "catalog:"
+    "@platforma-sdk/ui-vue": "catalog:",
+    "vue": "catalog:"
   },
   "devDependencies": {
     "@milaboratories/ts-builder": "catalog:",

@@ -7,21 +7,23 @@ packages:
   - block
 
 catalog:
-  "@milaboratories/graph-maker": 1.4.0
+  "@milaboratories/graph-maker": 1.4.2
   "@milaboratories/ts-builder": 1.4.0
   "@milaboratories/ts-configs": 1.2.3
-  "@platforma-sdk/workflow-tengo": 5.21.0
-  "@platforma-sdk/block-tools": 2.7.23
-  "@platforma-sdk/model": 1.75.5
-  "@platforma-sdk/ui-vue": 1.75.6
-  "@platforma-sdk/test": 1.75.6
+  "@platforma-sdk/workflow-tengo": 5.24.0
+  "@platforma-sdk/block-tools": 2.7.25
+  "@platforma-sdk/model": 1.77.0
+  "@platforma-sdk/ui-vue": 1.77.0
+  "@platforma-sdk/test": 1.77.1
   "@milaboratories/helpers": 1.14.2
-  "@platforma-sdk/tengo-builder": 2.5.26
+  "@platforma-sdk/tengo-builder": 2.5.29
   "@platforma-sdk/package-builder": 3.12.0
   "@platforma-sdk/blocks-deps-updater": 2.2.0
   "@platforma-sdk/eslint-config": 1.2.0
 
   "@platforma-open/milaboratories.runenv-python-3": 1.8.2
+
+  "vue": 3.5.24
 
   "turbo": 2.8.11
   "typescript": ~5.6.3
