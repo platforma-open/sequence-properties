@@ -440,12 +440,10 @@ wf.body(func(args) {
 	// customBlockLabel to "" (never undefined). Same pattern as
 	// clonotype-clustering and titeseq-analysis PR #13.
 	//
-	// Static last-resort fallback to "Sequence Properties" covers the path
-	// where an automated pipeline restores a project and runs this block
-	// before the UI watchEffect fires — both label fields would still be ""
-	// in that window. Without this guard, makeTrace would receive label: ""
-	// and downstream pickers would render blank entries instead of the
-	// block-type default.
+	// Static "Sequence Properties" last-resort covers automated pipelines
+	// that run the block before the UI watchEffect populates
+	// defaultBlockLabel — both fields are "" in that window, and the guard
+	// keeps makeTrace from rendering blank entries downstream.
 	traceLabel := args.customBlockLabel
 	if traceLabel == "" {
 		traceLabel = args.defaultBlockLabel
