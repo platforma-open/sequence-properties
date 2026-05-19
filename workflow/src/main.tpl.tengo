@@ -439,9 +439,19 @@ wf.body(func(args) {
 	// by the user's PlBlockPage subtitle override. Model defaults
 	// customBlockLabel to "" (never undefined). Same pattern as
 	// clonotype-clustering and titeseq-analysis PR #13.
+	//
+	// Static last-resort fallback to "Sequence Properties" covers the path
+	// where an automated pipeline restores a project and runs this block
+	// before the UI watchEffect fires — both label fields would still be ""
+	// in that window. Without this guard, makeTrace would receive label: ""
+	// and downstream pickers would render blank entries instead of the
+	// block-type default.
 	traceLabel := args.customBlockLabel
 	if traceLabel == "" {
 		traceLabel = args.defaultBlockLabel
+	}
+	if traceLabel == "" {
+		traceLabel = "Sequence Properties"
 	}
 	trace := pSpec.makeTrace(datasetSpec, {
 		type: "milaboratories.sequence-properties",
