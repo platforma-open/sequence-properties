@@ -31,7 +31,7 @@ import type { BlockData as SamplesAndDataBlockData } from '@platforma-open/milab
 import { blockSpec as mixcrClonotypingBlockSpec } from '@platforma-open/milaboratories.mixcr-clonotyping-2';
 import type { BlockData as MixcrClonotypingBlockData } from '@platforma-open/milaboratories.mixcr-clonotyping-2.model';
 import { blockSpec as seqPropsBlockSpec } from 'this-block';
-import { createPlDataTableStateV2, uniquePlId } from '@platforma-sdk/model';
+import { uniquePlId } from '@platforma-sdk/model';
 import type { ML, RawHelpers } from '@platforma-sdk/test';
 import { awaitStableState } from '@platforma-sdk/test';
 import type { expect as vitestExpect } from 'vitest';
@@ -120,6 +120,23 @@ async function configureMixcrClonotyping(
     throw new Error('mixcr-clonotyping-2 inputOptions did not populate after samples-and-data');
   }
 
+  // mixcr-clonotyping-2@2.18 pins @platforma-sdk/model@1.63.1, whose
+  // PlDataTableStateV2 is version 5. Our catalog SDK (1.77.0) exposes
+  // createPlDataTableStateV2 that emits version 7. The two shapes are
+  // structurally close, but the version literal differs and TS treats
+  // them as incompatible. Constructing the v5 literal directly avoids
+  // the cross-version helper and keeps the type fully checked.
+  const tableState: MixcrClonotypingBlockData['tableState'] = {
+    version: 5,
+    stateCache: [],
+    pTableParams: {
+      sourceId: null,
+      hiddenColIds: null,
+      filters: null,
+      sorting: [],
+    },
+  };
+
   await rawPrj.mutateBlockStorage(clonotypingBlockId, {
     operation: 'update-block-data',
     value: {
@@ -128,11 +145,7 @@ async function configureMixcrClonotyping(
       input: inputOptions[0].ref,
       preset: { type: 'name', name: preset },
       chains,
-      // Cast across SDK versions: mixcr-clonotyping-2@2.18 declares its
-      // tableState against @platforma-sdk/model@1.63.1 (PlDataTableStateV2
-      // version 5); our catalog is on 1.77.0 (version 7). The state field
-      // is opaque to the workflow — runtime is compatible.
-      tableState: createPlDataTableStateV2() as unknown as MixcrClonotypingBlockData['tableState'],
+      tableState,
       runMode: 'full',
     } satisfies MixcrClonotypingBlockData,
   });
