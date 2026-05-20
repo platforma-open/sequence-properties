@@ -163,11 +163,11 @@ describe('dedup', () => {
   //   (2) emit per-instance pl7.app/trace.id so downstream pickers
   //       disambiguate.
   //
-  // Gated on locally-staged fastq fixtures — the synthetic xsv-import route
-  // is blocked on the empty-tarball upstream documented in helpers.ts. To
-  // enable: drop paired-end single-cell IG fastq slices at
-  // test/assets/canary-sc-ig.R{1,2}.fastq.gz (any small slice works — the
-  // test asserts on dedup wiring, not biological content).
+  // Runs whenever the SC IG fastq fixtures exist at
+  // test/assets/canary-sc-ig.R{1,2}.fastq.gz (staged from
+  // mixcr-clonotyping's SRR11233625 slices). The synthetic xsv-import
+  // route remains blocked on the empty-tarball upstream documented in
+  // helpers.ts — the MiXCR canary is the only working path today.
   blockTest.skipIf(!HAS_CANARY_FIXTURES)(
     'two co-instances on identical upstream run without CID conflicts',
     { timeout: 600_000 },
@@ -229,8 +229,10 @@ describe('dedup', () => {
       expect((aCols as unknown[]).length).toBe((bCols as unknown[]).length);
 
       // Per-instance trace.id is what lets downstream pickers disambiguate
-      // co-instances. The label resolves to customBlockLabel || defaultBlockLabel
-      // (here both default — assertion is on id, not label).
+      // co-instances. The label comes from resolveTraceLabel(data) in
+      // model/src/label.ts; this test leaves customBlockLabel unset so both
+      // labels collapse to the same defaultBlockLabel — assertion is on id,
+      // not label.
       const aTrace = ((aCols as { spec: { annotations?: Record<string, string> } }[])[0]
         .spec.annotations ?? {})['pl7.app/trace'];
       const bTrace = ((bCols as { spec: { annotations?: Record<string, string> } }[])[0]

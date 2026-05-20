@@ -8,10 +8,10 @@ export function resolveSubtitle(data: BlockData): string {
   return data.customBlockLabel || data.defaultBlockLabel;
 }
 
-// Trace-label resolution for the workflow's pl7.app/trace.label. Adds a
-// static block-type last-resort over resolveSubtitle so automated pipelines
-// that run before the UI watchEffect populates defaultBlockLabel never see
-// an empty label downstream.
+// Trace-label resolution for the workflow's pl7.app/trace.label. Same chain
+// as resolveSubtitle plus a static block-type last-resort, so automated
+// pipelines that run before the UI populates defaultBlockLabel still emit
+// a non-empty label downstream.
 export function resolveTraceLabel(data: BlockData): string {
   return data.customBlockLabel || data.defaultBlockLabel || STATIC_FALLBACK;
 }
