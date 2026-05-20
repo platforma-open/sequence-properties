@@ -150,12 +150,6 @@ describe('model + UI', () => {
 describe('dedup', () => {
   it.todo('second project on identical upstream lands on Done via dedup');
   it.todo('changed upstream input breaks dedup and triggers fresh run');
-  // Two-instance co-instance dedup regression for PR #9 — attempted in this
-  // PR with SRR11233625 fastq fixtures but hit a TreeStateUpdateError
-  // (orphan resource) during V3 upstream wiring in CI. The trace-label and
-  // migration contracts this test was meant to lock are covered by the
-  // model-package vitest (label.test.ts + dataModel.test.ts). Re-enable
-  // once the orphan-resource root cause is understood.
   it.todo('two co-instances on identical upstream run without CID conflicts');
 });
 
