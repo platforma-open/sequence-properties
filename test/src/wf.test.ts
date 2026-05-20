@@ -150,6 +150,7 @@ describe('model + UI', () => {
 describe('dedup', () => {
   it.todo('second project on identical upstream lands on Done via dedup');
   it.todo('changed upstream input breaks dedup and triggers fresh run');
+  it.todo('two co-instances on identical upstream run without CID conflicts');
 });
 
 // ---------------------------------------------------------------------------

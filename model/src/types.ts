@@ -6,19 +6,31 @@ import type { PlDataTableStateV2, PlRef } from "@platforma-sdk/model";
 export type BlockDataV1 = {
   inputAnchor?: PlRef;
   tableState: PlDataTableStateV2;
-  // UI-only state. Tracks the selected input dataset's label so the block
-  // subtitle can reflect it — populated by the UI watcher in app.ts. Not
-  // projected into BlockArgs because the workflow does not consume it.
+  // Historically optional UI-only state. Required in the current BlockData
+  // shape; consumed by the label helpers in label.ts (resolveSubtitle for
+  // the PlBlockPage subtitle, resolveTraceLabel for the workflow trace).
   defaultBlockLabel?: string;
 };
 
-export type BlockData = BlockDataV1 & {
+// V2 shape — what the deployed Ver_2026_05_05 migration produces. Input to
+// the new Ver_2026_05_18 step that backfills the label fields. Both label
+// fields are optional here so the V2→V2.1 migration can read-or-default any
+// value an interim deployment may have written.
+export type BlockDataV2 = Omit<BlockDataV1, "defaultBlockLabel"> & {
+  defaultBlockLabel?: string;
+  customBlockLabel?: string;
   graphStateScatter: GraphMakerState;
   graphStateHistogram: GraphMakerState;
 };
 
+export type BlockData = Omit<BlockDataV2, "defaultBlockLabel"> & {
+  defaultBlockLabel: string;
+  customBlockLabel: string;
+};
+
 export type BlockArgs = {
   inputAnchor: PlRef;
+  traceLabel: string;
 };
 
 export type WorkflowMode =
