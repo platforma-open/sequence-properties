@@ -434,10 +434,17 @@ wf.body(func(args) {
 	// and as the result-pool export — one canonical resource, two consumers.
 	// The trace is also how the block's own UI distinguishes our property
 	// columns from upstream metadata columns mixed into propertiesPfHandle.
+	// Per-instance trace label. Resolution lives in the model
+	// (resolveTraceLabel in model/src/label.ts) — the model projects a single
+	// string into args so the workflow does not know about customBlockLabel
+	// vs defaultBlockLabel vs the static fallback. The fallback chain
+	// itself — customBlockLabel || defaultBlockLabel || "Sequence Properties"
+	// — matches clonotype-clustering and titeseq-analysis PR #13; only the
+	// location of the resolution differs (model here, inline-Tengo there).
 	trace := pSpec.makeTrace(datasetSpec, {
 		type: "milaboratories.sequence-properties",
 		importance: 30,
-		label: "Sequence Properties",
+		label: args.traceLabel,
 		id: blockId
 	})
 	stamp := func(spec) {
