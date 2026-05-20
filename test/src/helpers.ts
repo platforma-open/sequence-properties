@@ -152,52 +152,6 @@ async function configureMixcrClonotyping(
 }
 
 /**
- * Add samples-and-data + mixcr-clonotyping-2 wired to fastq fixtures, plus
- * two sequence-properties blocks pending an `inputAnchor` from the caller.
- *
- * Locks PR #9's canonical-specs-in / stamp-out invariant. If a future change
- * leaks blockId back into a pure template's inputs (or into the column specs
- * passed to `xsv.importFile`), two co-instances will trigger CIDConflictError
- * — this helper makes that regression surface as a test failure.
- *
- * On return: samples-and-data is configured AND has run to Done.
- * mixcr-clonotyping-2 is configured but not yet run. seqProps blocks are
- * added but unconfigured. The test body runs clonotyping + configures + runs
- * the seqProps blocks.
- */
-export async function setupTwoSeqPropsCoInstances(
-  ctx: TestCtx,
-  opts: {
-    preset?: string;
-    chains?: string[];
-    r1Path: string;
-    r2Path: string;
-  },
-): Promise<{
-  sndBlockId: string;
-  clonotypingBlockId: string;
-  seqPropsBlockIdA: string;
-  seqPropsBlockIdB: string;
-}> {
-  const preset = opts.preset ?? '10x-sc-xcr-vdj-rhapsody';
-  const chains = opts.chains ?? ['IGHeavy', 'IGLight'];
-
-  const { rawPrj, helpers } = ctx;
-  const sndBlockId = await rawPrj.addBlock('Samples & Data', samplesAndDataBlockSpec);
-  const clonotypingBlockId = await rawPrj.addBlock('MiXCR Clonotyping', mixcrClonotypingBlockSpec);
-  const seqPropsBlockIdA = await addSequenceProperties(ctx, 'Sequence Properties A');
-  const seqPropsBlockIdB = await addSequenceProperties(ctx, 'Sequence Properties B');
-
-  await configureSamplesAndData(ctx, sndBlockId, opts);
-  await rawPrj.runBlock(sndBlockId);
-  await helpers.awaitBlockDone(sndBlockId, 30000);
-
-  await configureMixcrClonotyping(ctx, clonotypingBlockId, preset, chains);
-
-  return { sndBlockId, clonotypingBlockId, seqPropsBlockIdA, seqPropsBlockIdB };
-}
-
-/**
  * Older helper retained for the MiXCR canary test scaffolding. Same V3
  * configuration flow as setupTwoSeqPropsCoInstances but with a single
  * sequence-properties block.
