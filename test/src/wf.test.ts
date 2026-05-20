@@ -27,7 +27,8 @@
 
 import type { platforma } from '@platforma-open/milaboratories.sequence-properties.model';
 import type { InferBlockState } from '@platforma-sdk/model';
-import { wrapOutputs } from '@platforma-sdk/model';
+import { createPlDataTableStateV2, wrapOutputs } from '@platforma-sdk/model';
+import type { BlockData } from '@platforma-open/milaboratories.sequence-properties.model';
 import { awaitStableState, blockTest } from '@platforma-sdk/test';
 import { blockSpec as seqPropsBlockSpec } from 'this-block';
 import { existsSync } from 'node:fs';
@@ -188,8 +189,29 @@ describe('dedup', () => {
       expect(opts?.length).toBeGreaterThan(0);
       const anchorRef = opts[0].ref;
 
-      await rawPrj.setBlockArgs(seqPropsBlockIdA, { inputAnchor: anchorRef });
-      await rawPrj.setBlockArgs(seqPropsBlockIdB, { inputAnchor: anchorRef });
+      // sequence-properties is BlockModelV3 — update via mutateBlockStorage
+      // with a full BlockData payload, not setBlockArgs (which is V1's API).
+      const seqPropsData = (): BlockData => ({
+        inputAnchor: anchorRef as BlockData['inputAnchor'],
+        tableState: createPlDataTableStateV2(),
+        defaultBlockLabel: '',
+        customBlockLabel: '',
+        graphStateScatter: { currentTab: null, template: 'dots', title: 'Property Relationships' },
+        graphStateHistogram: {
+          currentTab: null,
+          layersSettings: { bins: { fillColor: '#99e099' } },
+          template: 'bins',
+          title: 'Property Distribution',
+        },
+      });
+      await rawPrj.mutateBlockStorage(seqPropsBlockIdA, {
+        operation: 'update-block-data',
+        value: seqPropsData(),
+      });
+      await rawPrj.mutateBlockStorage(seqPropsBlockIdB, {
+        operation: 'update-block-data',
+        value: seqPropsData(),
+      });
 
       await rawPrj.runBlock(seqPropsBlockIdA);
       await rawPrj.runBlock(seqPropsBlockIdB);
