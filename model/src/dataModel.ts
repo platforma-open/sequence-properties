@@ -36,9 +36,9 @@ export const blockDataModel = new DataModelBuilder()
   // Ver_2026_05_05 (DataModelBuilder skips matching-version migrations).
   .migrate<BlockDataV2>("Ver_2026_05_05", migrateV1toV2)
   // Backfills label fields onto V2-tagged projects. `?? ""` preserves any
-  // interim-deployed value; missing fields default to "". The workflow's
-  // `traceLabel := args.customBlockLabel || args.defaultBlockLabel`
-  // requires both args to be strings, never undefined.
+  // interim-deployed value; missing fields default to "". The args
+  // projection (resolveTraceLabel in label.ts) requires both fields to be
+  // strings, never undefined.
   .migrate<BlockData>("Ver_2026_05_18", migrateV2toV2_1)
   .init(() => ({
     tableState: createPlDataTableStateV2(),

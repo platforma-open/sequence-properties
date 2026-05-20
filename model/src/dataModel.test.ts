@@ -11,14 +11,25 @@ import type { BlockData, BlockDataV1, BlockDataV2 } from "./types";
 import { migrateV1toV2, migrateV2toV2_1 } from "./dataModel";
 
 const tableState = {
-  pTableParams: { defaultFilters: null, filters: null, hiddenColIds: null, sorting: [], sourceId: null },
+  pTableParams: {
+    defaultFilters: null,
+    filters: null,
+    hiddenColIds: null,
+    sorting: [],
+    sourceId: null,
+  },
   stateCache: [],
   version: 6,
 } as BlockDataV2["tableState"];
 
 const v2Graph: Pick<BlockDataV2, "graphStateScatter" | "graphStateHistogram"> = {
   graphStateScatter: { currentTab: null, template: "dots", title: "Property Relationships" },
-  graphStateHistogram: { currentTab: null, layersSettings: { bins: { fillColor: "#99e099" } }, template: "bins", title: "Property Distribution" },
+  graphStateHistogram: {
+    currentTab: null,
+    layersSettings: { bins: { fillColor: "#99e099" } },
+    template: "bins",
+    title: "Property Distribution",
+  },
 };
 
 describe("blockDataModel Ver_2026_05_18 backfill", () => {
