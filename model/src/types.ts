@@ -30,8 +30,7 @@ export type BlockData = Omit<BlockDataV2, "defaultBlockLabel"> & {
 
 export type BlockArgs = {
   inputAnchor: PlRef;
-  defaultBlockLabel: string;
-  customBlockLabel: string;
+  traceLabel: string;
 };
 
 export type WorkflowMode =
