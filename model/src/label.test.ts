@@ -3,9 +3,28 @@ import type { BlockData } from "./types";
 import { resolveSubtitle, resolveTraceLabel } from "./label";
 
 const base: Omit<BlockData, "customBlockLabel" | "defaultBlockLabel"> = {
-  tableState: { pTableParams: { defaultFilters: null, filters: null, hiddenColIds: null, sorting: [], sourceId: null }, stateCache: [], version: 6 } as BlockData["tableState"],
-  graphStateScatter: { currentTab: null, template: "dots", title: "Property Relationships" } as BlockData["graphStateScatter"],
-  graphStateHistogram: { currentTab: null, layersSettings: { bins: { fillColor: "#99e099" } }, template: "bins", title: "Property Distribution" } as BlockData["graphStateHistogram"],
+  tableState: {
+    pTableParams: {
+      defaultFilters: null,
+      filters: null,
+      hiddenColIds: null,
+      sorting: [],
+      sourceId: null,
+    },
+    stateCache: [],
+    version: 6,
+  } as BlockData["tableState"],
+  graphStateScatter: {
+    currentTab: null,
+    template: "dots",
+    title: "Property Relationships",
+  } as BlockData["graphStateScatter"],
+  graphStateHistogram: {
+    currentTab: null,
+    layersSettings: { bins: { fillColor: "#99e099" } },
+    template: "bins",
+    title: "Property Distribution",
+  } as BlockData["graphStateHistogram"],
 };
 
 const make = (custom: string, def: string): BlockData => ({
