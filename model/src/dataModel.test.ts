@@ -1,10 +1,8 @@
 // Tests drive the migration callbacks directly because @platforma-sdk/model's
 // DataModelBuilder exposes no introspection / external-apply API. The builder
-// wiring at dataModel.ts (.migrate("Ver_2026_05_05", migrateV1toV2) and
-// .migrate("Ver_2026_05_18", migrateV2toV2_1)) is covered by integration use
-// — if someone removes a .migrate(...) line but keeps the named callback
-// exported, these unit tests will still pass. Live block load is the only
-// signal that catches that class of regression today.
+// wiring in dataModel.ts (the two `.migrate(...)` calls) is only exercised
+// when a real block loads — these unit tests would still pass if someone
+// deleted a `.migrate(...)` line while keeping the named callback exported.
 
 import { describe, expect, it } from "vitest";
 import type { BlockData, BlockDataV1, BlockDataV2 } from "./types";

@@ -7,8 +7,8 @@ export type BlockDataV1 = {
   inputAnchor?: PlRef;
   tableState: PlDataTableStateV2;
   // Historically optional UI-only state. Required in the current BlockData
-  // shape (V2) and projected into BlockArgs so the workflow trace label can
-  // fall back to it when the user has not typed a custom subtitle.
+  // shape; consumed by the label helpers in label.ts (resolveSubtitle for
+  // the PlBlockPage subtitle, resolveTraceLabel for the workflow trace).
   defaultBlockLabel?: string;
 };
 
