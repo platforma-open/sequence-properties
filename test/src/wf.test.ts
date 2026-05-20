@@ -171,8 +171,8 @@ describe('dedup', () => {
   blockTest.skipIf(!HAS_CANARY_FIXTURES)(
     'two co-instances on identical upstream run without CID conflicts',
     { timeout: 600_000 },
-    async (ctx) => {
-      const { expect, rawPrj } = ctx;
+    async ({ expect, rawPrj, ml, helpers }) => {
+      const ctx = { expect, rawPrj, ml, helpers };
       const { clonotypingBlockId, seqPropsBlockIdA, seqPropsBlockIdB } =
         await setupTwoSeqPropsCoInstances(ctx, { r1Path: FIXTURE_R1, r2Path: FIXTURE_R2 });
 
