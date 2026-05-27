@@ -6,10 +6,11 @@ import MainPage from "./pages/MainPage.vue";
 import ScatterPage from "./pages/ScatterPage.vue";
 
 // Module-level singleton — session-only dismissal of info-message alerts.
-// Lives outside `<script setup>` so it survives in-block route changes
-// (Main ↔ Property Relationships ↔ Property Distribution). Resets when the
-// block UI unmounts (project close, app reload, switching to another block
-// and back). Hairpin-safe: writes only happen on user gesture from
+// Survives in-block route changes (Main ↔ Property Relationships ↔
+// Property Distribution) and switching away to other blocks (desktop
+// LRU-caches recently-used block UIs, limit 4). Resets on project close,
+// block reload, LRU eviction after opening several other blocks, or app
+// restart. Hairpin-safe: writes only happen on user gesture from
 // PlAlert's close-button emit.
 export const dismissedInfoMessages = ref(new Set<string>());
 
