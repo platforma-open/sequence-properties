@@ -57,6 +57,8 @@ function dismiss(message: string) {
 
 const hasDismissals = computed(() => app.model.data.dismissedInfoMessages.length > 0);
 
+const hiddenInfoCount = computed(() => app.model.data.dismissedInfoMessages.length);
+
 function resetDismissedInfoMessages() {
   app.model.data.dismissedInfoMessages = [];
 }
@@ -98,6 +100,17 @@ const tableSettings = usePlDataTableSettingsV2({
       {{ message }}
     </PlAlert>
 
+    <!-- Provisional: dismissed-info-messages footer. Self-contained -->
+    <!-- block; remove this fragment + the matching <style> rule if it -->
+    <!-- does not fit the block UX after manual testing. -->
+    <div v-if="hiddenInfoCount > 0" class="dismissed-info-footer">
+      <span
+        >{{ hiddenInfoCount }} info
+        {{ hiddenInfoCount === 1 ? "message" : "messages" }} hidden.</span
+      >
+      <a href="#" @click.prevent="resetDismissedInfoMessages">Show all</a>
+    </div>
+
     <PlAgDataTableV2
       v-model="app.model.data.tableState"
       :settings="tableSettings"
@@ -130,3 +143,17 @@ const tableSettings = usePlDataTableSettingsV2({
     <PlLogView :log-handle="app.model.outputs.processingLog" />
   </PlSlideModal>
 </template>
+
+<style scoped>
+.dismissed-info-footer {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 0 12px;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+.dismissed-info-footer a {
+  cursor: pointer;
+}
+</style>
