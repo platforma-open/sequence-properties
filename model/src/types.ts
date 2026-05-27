@@ -23,9 +23,20 @@ export type BlockDataV2 = Omit<BlockDataV1, "defaultBlockLabel"> & {
   graphStateHistogram: GraphMakerState;
 };
 
-export type BlockData = Omit<BlockDataV2, "defaultBlockLabel"> & {
+// V2.1 shape — what the deployed Ver_2026_05_18 migration produces. Input
+// to the new Ver_2026_05_27 step that adds dismissedInfoMessages. Both
+// label fields are required here (Ver_2026_05_18 backfills them).
+export type BlockDataV2_1 = Omit<BlockDataV2, "defaultBlockLabel"> & {
   defaultBlockLabel: string;
   customBlockLabel: string;
+};
+
+// Current shape — output of Ver_2026_05_27. Adds dismissedInfoMessages,
+// the persistent list of info-alert strings the user has closed.
+// Workflow `info.messages` strings are deterministic per input, so the
+// string content itself is a stable dismissal key.
+export type BlockData = BlockDataV2_1 & {
+  dismissedInfoMessages: string[];
 };
 
 export type BlockArgs = {
