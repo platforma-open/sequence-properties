@@ -12,7 +12,7 @@ import {
   usePlDataTableSettingsV2,
 } from "@platforma-sdk/ui-vue";
 import { computed, ref, watch } from "vue";
-import { useApp } from "../app";
+import { dismissedInfoMessages, useApp } from "../app";
 
 const app = useApp();
 
@@ -35,11 +35,10 @@ function setInput(ref?: PlRef) {
   app.model.data.tableState = createPlDataTableStateV2();
 }
 
-// Session-only dismissal of info-message alerts. Local ref → not persisted;
-// resets when the block UI unmounts (project close, app reload). The write
-// only happens on PlAlert's close-button user gesture, so this is not a
-// hairpin.
-const dismissedInfoMessages = ref(new Set<string>());
+// Source-of-truth for session-only dismissal lives at module scope in
+// `app.ts` so it survives in-block route changes (Main ↔ Property
+// Relationships ↔ Property Distribution). See app.ts for the lifecycle
+// notes.
 const visibleInfoMessages = computed(() =>
   (app.model.outputs.info?.messages ?? []).filter((m) => !dismissedInfoMessages.value.has(m)),
 );
