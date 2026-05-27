@@ -9,8 +9,7 @@ the workflow (VHH detection, partial-region inputs, peptide-instability
 floor, etc.) now show a close button. Dismissals persist in
 `BlockData.dismissedInfoMessages` — server-side, across project reopens
 and clients. The Settings modal includes a "Reset dismissed info
-messages" action; a small "N hidden — show all" footer surfaces the
-dismissed state in-context.
+messages" action to clear all dismissals at once.
 
 Model schema: new `Ver_2026_05_27` migration step backfills
 `dismissedInfoMessages: []` on existing projects.
