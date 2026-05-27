@@ -11,7 +11,7 @@ import {
   PlSlideModal,
   usePlDataTableSettingsV2,
 } from "@platforma-sdk/ui-vue";
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useApp } from "../app";
 
 const app = useApp();
@@ -33,6 +33,26 @@ watch(
 function setInput(ref?: PlRef) {
   app.model.data.inputAnchor = ref;
   app.model.data.tableState = createPlDataTableStateV2();
+}
+
+// Filtered alert list — exclude messages the user has explicitly closed.
+// `data.dismissedInfoMessages` is the source of truth (persisted); the
+// computed is read-only derivation. Not a hairpin: no watcher writes back
+// to data from outputs.
+const visibleInfoMessages = computed(() => {
+  const dismissed = new Set(app.model.data.dismissedInfoMessages);
+  return (app.model.outputs.info?.messages ?? []).filter((m) => !dismissed.has(m));
+});
+
+// User-gesture write — invoked only from PlAlert's close-button emit.
+// Duplicate guard avoids redundant patches if the same close event fires
+// twice (defensive; PlAlert emits once, but the data array survives
+// across reactive cycles).
+function dismiss(message: string) {
+  const cur = app.model.data.dismissedInfoMessages;
+  if (!cur.includes(message)) {
+    app.model.data.dismissedInfoMessages = [...cur, message];
+  }
 }
 
 const tableSettings = usePlDataTableSettingsV2({
@@ -62,9 +82,12 @@ const tableSettings = usePlDataTableSettingsV2({
     </template>
 
     <PlAlert
-      v-for="(message, idx) in app.model.outputs.info?.messages ?? []"
-      :key="idx"
+      v-for="message in visibleInfoMessages"
+      :key="message"
       type="info"
+      closeable
+      :model-value="true"
+      @update:model-value="() => dismiss(message)"
     >
       {{ message }}
     </PlAlert>

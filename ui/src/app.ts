@@ -7,6 +7,7 @@ import ScatterPage from "./pages/ScatterPage.vue";
 
 export const sdkPlugin = defineAppV3(platforma, (app) => {
   app.model.data.customBlockLabel ??= "";
+  app.model.data.dismissedInfoMessages ??= [];
 
   watchEffect(() => {
     const anchor = app.model.data.inputAnchor;
