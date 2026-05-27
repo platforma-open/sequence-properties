@@ -11,7 +11,7 @@ import {
   PlSlideModal,
   usePlDataTableSettingsV2,
 } from "@platforma-sdk/ui-vue";
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useApp } from "../app";
 
 const app = useApp();
@@ -33,6 +33,18 @@ watch(
 function setInput(ref?: PlRef) {
   app.model.data.inputAnchor = ref;
   app.model.data.tableState = createPlDataTableStateV2();
+}
+
+// Session-only dismissal of info-message alerts. Local ref → not persisted;
+// resets when the block UI unmounts (project close, app reload). The write
+// only happens on PlAlert's close-button user gesture, so this is not a
+// hairpin.
+const dismissedInfoMessages = ref(new Set<string>());
+const visibleInfoMessages = computed(() =>
+  (app.model.outputs.info?.messages ?? []).filter((m) => !dismissedInfoMessages.value.has(m)),
+);
+function dismissInfoMessage(message: string) {
+  dismissedInfoMessages.value = new Set(dismissedInfoMessages.value).add(message);
 }
 
 const tableSettings = usePlDataTableSettingsV2({
@@ -62,9 +74,12 @@ const tableSettings = usePlDataTableSettingsV2({
     </template>
 
     <PlAlert
-      v-for="(message, idx) in app.model.outputs.info?.messages ?? []"
-      :key="idx"
+      v-for="message in visibleInfoMessages"
+      :key="message"
       type="info"
+      closeable
+      :model-value="true"
+      @update:model-value="() => dismissInfoMessage(message)"
     >
       {{ message }}
     </PlAlert>
