@@ -25,6 +25,7 @@ const base: Omit<BlockData, "customBlockLabel" | "defaultBlockLabel"> = {
     template: "bins",
     title: "Property Distribution",
   } as BlockData["graphStateHistogram"],
+  dismissedInfoMessages: [],
 };
 
 const make = (custom: string, def: string): BlockData => ({
