@@ -93,7 +93,11 @@ const tableSettings = usePlDataTableSettingsV2({
       type="info"
       closeable
       :model-value="true"
-      @update:model-value="() => dismiss(message)"
+      @update:model-value="
+        (val) => {
+          if (!val) dismiss(message);
+        }
+      "
     >
       {{ message }}
     </PlAlert>
