@@ -55,6 +55,12 @@ function dismiss(message: string) {
   }
 }
 
+const hasDismissals = computed(() => app.model.data.dismissedInfoMessages.length > 0);
+
+function resetDismissedInfoMessages() {
+  app.model.data.dismissedInfoMessages = [];
+}
+
 const tableSettings = usePlDataTableSettingsV2({
   model: () => app.model.outputs.propertiesTable,
 });
@@ -114,6 +120,9 @@ const tableSettings = usePlDataTableSettingsV2({
         Peptide extraction or MiXCR clonotyping output. Modality is auto-detected.
       </template>
     </PlDropdownRef>
+    <PlBtnGhost :disabled="!hasDismissals" @click="resetDismissedInfoMessages">
+      Reset dismissed info messages
+    </PlBtnGhost>
   </PlSlideModal>
 
   <PlSlideModal v-model="logOpen" width="80%">
