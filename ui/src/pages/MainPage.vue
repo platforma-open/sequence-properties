@@ -11,8 +11,8 @@ import {
   PlSlideModal,
   usePlDataTableSettingsV2,
 } from "@platforma-sdk/ui-vue";
-import { ref, watch } from "vue";
-import { useApp } from "../app";
+import { computed, ref, watch } from "vue";
+import { dismissedInfoMessages, useApp } from "../app";
 
 const app = useApp();
 
@@ -33,6 +33,17 @@ watch(
 function setInput(ref?: PlRef) {
   app.model.data.inputAnchor = ref;
   app.model.data.tableState = createPlDataTableStateV2();
+}
+
+// Source-of-truth for session-only dismissal lives at module scope in
+// `app.ts` so it survives in-block route changes (Main ↔ Property
+// Relationships ↔ Property Distribution). See app.ts for the lifecycle
+// notes.
+const visibleInfoMessages = computed(() =>
+  (app.model.outputs.info?.messages ?? []).filter((m) => !dismissedInfoMessages.value.has(m)),
+);
+function dismissInfoMessage(message: string) {
+  dismissedInfoMessages.value = new Set(dismissedInfoMessages.value).add(message);
 }
 
 const tableSettings = usePlDataTableSettingsV2({
@@ -62,9 +73,11 @@ const tableSettings = usePlDataTableSettingsV2({
     </template>
 
     <PlAlert
-      v-for="(message, idx) in app.model.outputs.info?.messages ?? []"
-      :key="idx"
+      v-for="message in visibleInfoMessages"
+      :key="message"
       type="info"
+      closeable
+      @update:model-value="() => dismissInfoMessage(message)"
     >
       {{ message }}
     </PlAlert>
