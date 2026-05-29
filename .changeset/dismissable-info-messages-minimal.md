@@ -5,9 +5,9 @@
 
 Closeable info messages on the Main tab — session-only variant. The
 advisory alerts emitted by the workflow now show a close button.
-Dismissals live in a local UI ref and reset when the block UI unmounts
-(project close, app reload). No `BlockData` change; no migration; the
-block model is unchanged.
+Dismissals live in a module-scope UI ref: they persist across in-block
+navigation and reset on project close, block reload, or app restart. No
+`BlockData` change; no migration; the block model is unchanged.
 
 This is the minimal-surface alternative to a persisted-dismissal
 approach. Pick this when you want "acknowledged for this session, fresh
