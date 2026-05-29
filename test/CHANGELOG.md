@@ -1,5 +1,12 @@
 # @platforma-open/MiLaboratories.sequence-properties.test
 
+## 1.1.9
+
+### Patch Changes
+
+- Updated dependencies [082b684]
+  - @platforma-open/milaboratories.sequence-properties.model@1.3.1
+
 ## 1.1.8
 
 ### Patch Changes

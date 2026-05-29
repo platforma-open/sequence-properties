@@ -1,5 +1,22 @@
 ## 1.0.0
 
+## 1.5.0
+
+### Minor Changes
+
+- 082b684: Info-message alerts on the Main tab now have a close button. Dismissals
+  follow the firing: hidden while the message is in the workflow output,
+  surface fresh if the workflow stops emitting it and later re-emits.
+  State lives in a module-scope UI ref — persists across in-block
+  navigation, resets on project close, block reload, or app restart.
+
+### Patch Changes
+
+- Updated dependencies [082b684]
+  - @platforma-open/milaboratories.sequence-properties.ui@1.4.0
+  - @platforma-open/milaboratories.sequence-properties.workflow@1.3.1
+  - @platforma-open/milaboratories.sequence-properties.model@1.3.1
+
 ## 1.4.0
 
 ### Minor Changes
