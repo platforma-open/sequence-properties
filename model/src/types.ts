@@ -1,3 +1,4 @@
+// canary: coverage-gap red-check test (throwaway, do not merge)
 import type { GraphMakerState } from "@milaboratories/graph-maker";
 import type { PlDataTableStateV2, PlRef } from "@platforma-sdk/model";
 
