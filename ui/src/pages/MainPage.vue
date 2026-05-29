@@ -77,7 +77,6 @@ const tableSettings = usePlDataTableSettingsV2({
       :key="message"
       type="info"
       closeable
-      :model-value="true"
       @update:model-value="() => dismissInfoMessage(message)"
     >
       {{ message }}
