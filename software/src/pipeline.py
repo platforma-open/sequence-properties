@@ -19,6 +19,7 @@ import functools
 import logging
 import os
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from typing import Any
 
 import polars as pl
@@ -40,7 +41,15 @@ PH = 7.0  # All charge values computed at pH 7 (spec default).
 # Parallelism. Below this row count the pool's process startup + pickle cost
 # outweighs the benefit, so we stay in-process. The threshold also keeps the
 # whole existing unit-test suite on the fast sequential path.
+# The threshold is compared against ROW count regardless of per-row cost — an
+# antibody/TCR clone does several times the work of a peptide (CDR3 × chains +
+# full-chain × chains + Fv), so 2000 is intentionally more conservative for
+# antibody mode than peptide mode.
 _PARALLEL_MIN_ROWS = 2000
+
+# Rows dispatched per pool task. Bounds per-task pickle/IPC overhead without
+# starving workers; never overridden today but kept as a tuning knob.
+_PARALLEL_CHUNKSIZE = 256
 
 
 def resolve_workers(workers: int | None) -> int:
@@ -58,7 +67,7 @@ def resolve_workers(workers: int | None) -> int:
     return max(1, os.cpu_count() or 1)
 
 
-def _pmap(fn, items: list, workers: int, chunksize: int = 256) -> list:
+def _pmap(fn, items: list, workers: int, chunksize: int = _PARALLEL_CHUNKSIZE) -> list:
     """Map fn over items, preserving input order. Sequential below the
     threshold or when workers<=1; otherwise a process pool. ProcessPoolExecutor
     .map() preserves input order, so results align with items by index — the
@@ -67,7 +76,14 @@ def _pmap(fn, items: list, workers: int, chunksize: int = 256) -> list:
     if workers <= 1 or len(items) < _PARALLEL_MIN_ROWS:
         return [fn(x) for x in items]
     with ProcessPoolExecutor(max_workers=workers) as ex:
-        return list(ex.map(fn, items, chunksize=chunksize))
+        try:
+            return list(ex.map(fn, items, chunksize=chunksize))
+        except BrokenProcessPool as exc:
+            raise RuntimeError(
+                f"compute worker pool broke while processing {len(items)} items "
+                f"with {workers} workers — a worker process was killed (most likely "
+                f"out of memory). Reduce the input size or raise the step's memory."
+            ) from exc
 
 
 # ---------------------------------------------------------------------------

@@ -67,3 +67,16 @@ def test_antibody_invariant_to_workers(tmp_path: Path, n: int):
     one = _serialize(run(reads, _AB_PLAN, workers=1), tmp_path, "1")
     four = _serialize(run(reads, _AB_PLAN, workers=4), tmp_path, "4")
     assert one == four
+
+
+def _raise_on_call(_x):
+    raise ValueError("worker boom")
+
+
+def test_pmap_surfaces_clean_worker_exception():
+    # A worker that raises must propagate the original exception to the caller,
+    # not hang or be swallowed. >= _PARALLEL_MIN_ROWS forces the pool path.
+    from pipeline import _pmap
+
+    with pytest.raises(ValueError):
+        _pmap(_raise_on_call, list(range(2500)), workers=4)
