@@ -18,6 +18,8 @@ These tests guard the boundary behaviour. Internal property functions
 
 from __future__ import annotations
 
+import math
+
 import polars as pl
 import pytest
 
@@ -112,6 +114,16 @@ class TestQuantizeHelper:
     def test_constants_track_documented_values(self):
         assert CID_QUANTIZE_DECIMALS == 3
         assert CID_QUANTIZE_PREFIXES == ("charge_", "chargeShift_", "pi_")
+
+    # Signed-zero canonicalization: a `-0.0` input (FP-residual-sign drift on a
+    # ~0 property) must emit as `+0.0`, so the TSV writer produces identical bytes
+    # regardless of summation order. `-0.0 == 0.0` numerically, so the guard is
+    # on the SIGN bit, not equality.
+    def test_negative_zero_canonicalized_to_positive_zero(self):
+        out = _quantize_for_cid(pl.DataFrame({"entity_key": ["x"], "gravy_x": [-0.0]}))
+        v = out["gravy_x"][0]
+        assert v == 0.0
+        assert math.copysign(1.0, v) == 1.0, f"expected +0.0, got {v!r} (negative-zero bit set)"
 
 
 class TestPipelineQuantizationApplied:

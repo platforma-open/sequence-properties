@@ -427,9 +427,9 @@ def fv_isoelectric_point(
 ) -> np.ndarray:
     """Vectorized Fv pI: pH where charge(VH, pH) + charge(VL, pH) = 0.
 
-    Mirrors the scalar `properties.fv_isoelectric_point` /
-    `_compute_fv_row_from_ctx`'s pi: bisect the per-chain charge SUM, not the pI
-    of a concatenated VH+VL string. The bisected function is
+    Mirrors the scalar `properties.fv_isoelectric_point`: bisect the per-chain
+    charge SUM, not the pI of a concatenated VH+VL string. The bisected function
+    is
     `f(ph) = _charge_raw(vh, ph) + _charge_raw(vl, ph)` — both finite for all
     rows — and the row is valid only where BOTH chains are valid (matches the
     scalar's "None if either chain invalid").

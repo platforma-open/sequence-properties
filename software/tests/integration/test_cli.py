@@ -386,4 +386,4 @@ def test_cli_writes_progress_to_stderr(tmp_path: Path, capsys):
     assert rc == 0
     captured = capsys.readouterr()
     assert "peptide" in captured.err.lower(), captured.err
-    assert "scalar" in captured.err.lower() or "properties" in captured.err.lower(), captured.err
+    assert "properties" in captured.err.lower(), captured.err

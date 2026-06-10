@@ -89,26 +89,33 @@ def _decimals_for(col: str) -> int | None:
     return None
 
 
+def _round_and_canonicalize_zero(col: str, dp: int) -> pl.Expr:
+    """Round `col` to `dp` decimals, then canonicalize signed zero to `+0.0`.
+
+    This is the single definition of "how an emitted float is made CID-stable",
+    shared by the property frame (`_quantize_for_cid`) and the aa_fraction
+    `value` column. A property whose true value is ~0 (e.g. GRAVY of a
+    charge-balanced chain) lands on a sub-ULP residual whose SIGN depends on
+    summation order — the scalar BioPython path sums in residue order, the
+    vectorized `counts @ KD` in AA-index order, so the same numeric zero rounds
+    to `-0.0` on one and `+0.0` on the other. Both are numerically equal, but the
+    TSV writer emits different bytes (`-0.0` vs `0.0`). `-0.0 == 0.0` is True in
+    polars, so the `when` maps BOTH signed zeros to `+0.0` (note: `col + 0.0`
+    does NOT canonicalize in polars — it preserves the negative-zero bit). This
+    makes the content-addressable id insensitive to FP-residual-sign drift — the
+    same determinism guarantee the rounding already gives the other digits.
+    round(null) is null and `null == 0.0` is null, so NA cells stay null/empty.
+    """
+    rounded = pl.col(col).round(dp)
+    return pl.when(rounded == 0.0).then(pl.lit(0.0)).otherwise(rounded).alias(col)
+
+
 def _quantize_for_cid(df: pl.DataFrame) -> pl.DataFrame:
-    exprs = []
-    for c in df.columns:
-        dp = _decimals_for(c)
-        if dp is not None and df.schema[c] == pl.Float64:
-            # Round, then canonicalize signed zero to `+0.0`. A property whose
-            # true value is ~0 (e.g. GRAVY of a charge-balanced chain) lands on a
-            # sub-ULP residual whose SIGN depends on summation order — the scalar
-            # BioPython path sums in residue order, the vectorized `counts @ KD`
-            # in AA-index order, so the same numeric zero rounds to `-0.0` on one
-            # and `+0.0` on the other. Both are numerically equal, but the TSV
-            # writer emits different bytes (`-0.0` vs `0.0`). `-0.0 == 0.0` is
-            # True in polars, so the `when` maps BOTH signed zeros to `+0.0`
-            # (note: `col + 0.0` does NOT canonicalize in polars — it preserves
-            # the negative-zero bit). This makes the content-addressable id
-            # insensitive to FP-residual-sign drift — the same determinism
-            # guarantee the rounding already gives the other digits. round(null)
-            # is null and `null == 0.0` is null, so NA cells stay null/empty.
-            rounded = pl.col(c).round(dp)
-            exprs.append(pl.when(rounded == 0.0).then(pl.lit(0.0)).otherwise(rounded).alias(c))
+    exprs = [
+        _round_and_canonicalize_zero(c, dp)
+        for c in df.columns
+        if (dp := _decimals_for(c)) is not None and df.schema[c] == pl.Float64
+    ]
     return df.with_columns(exprs) if exprs else df
 
 
@@ -220,10 +227,13 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
             "value": _na_to_null(aa_value),
         }
     )
-    # Quantize at the output boundary like the property columns. aaFraction
-    # displays as .3f; round to 5 dp (one digit below display, headroom for the
-    # vectorization's FP drift). round(null) == null, so NA cells stay empty.
-    aa_fraction = aa_fraction.with_columns(pl.col("value").round(5))
+    # Quantize at the output boundary like the property columns, through the
+    # shared CID-stability helper. aaFraction displays as .3f; round to 5 dp (one
+    # digit below display, headroom for the vectorization's FP drift). Fractions
+    # are >=0 so the signed-zero canonicalization is a no-op here, but routing
+    # through the same helper keeps "how an emitted float is made CID-stable" in
+    # one place.
+    aa_fraction = aa_fraction.with_columns(_round_and_canonicalize_zero("value", 5))
 
     # R9 — flag whether any *real* peptide falls below the Instability Index
     # floor. `if s` filters None / "" so the banner does not fire on empty
@@ -411,7 +421,9 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
     # Fv — per-chain sums over VH=A, VL=B. charge/chargeShift/eox/ered/mw are
     # additive (NaN propagates if either chain invalid); pi bisects the SUMMED
     # charge function. Reuses the cached full-chain substrates so the chains are
-    # reconstructed/counted once. Mirrors scalar `_compute_fv_row_from_ctx`.
+    # reconstructed/counted once. Mirrors the scalar Fv anchors:
+    # `properties.fv_isoelectric_point` (pi) and the additive `properties.fv_charge`
+    # / `properties.fv_molecular_weight` / `properties.fv_extinction_coefficients`.
     if plan.get("hasFv"):
         sub_vh = chain_subs["A"]
         sub_vl = chain_subs["B"]
