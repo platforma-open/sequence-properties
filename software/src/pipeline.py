@@ -58,11 +58,6 @@ PH = 7.0  # All charge values computed at pH 7 (spec default).
 # The quantization is a *boundary* concern. Internal property functions
 # (`charge_at_ph`, `isoelectric_point`, etc.) keep full precision so golden-
 # value tests stay sharp. Only the pipeline's emitted DataFrame is rounded.
-#
-# `CID_QUANTIZE_PREFIXES` / `CID_QUANTIZE_DECIMALS` remain as documentation of
-# the charge/chargeShift/pi family's 3-dp contract (other tests assert them).
-CID_QUANTIZE_PREFIXES = ("charge_", "chargeShift_", "pi_")
-CID_QUANTIZE_DECIMALS = 3
 
 # Per-column-family rounding at the output boundary. Keys match the TSV column
 # *prefixes* the pipeline emits; the first matching prefix wins. Chosen below
