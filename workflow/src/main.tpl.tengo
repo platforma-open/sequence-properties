@@ -342,6 +342,9 @@ wf.body(func(args) {
 	// stats.json (dataset-level scalars consumed by the info layer — e.g. R11c
 	// median CDR-H3 length per chain).
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
+	// The Python step parallelizes per-row compute across os.cpu_count() workers
+	// (see software pipeline._pmap), so it requests multiple cores; ~1GiB/worker
+	// keeps the process pool from OOMing on large datasets. Other steps stay at cpu(1).
 	pyRun := exec.builder().
 		software(soft).
 		mem("8GiB").
