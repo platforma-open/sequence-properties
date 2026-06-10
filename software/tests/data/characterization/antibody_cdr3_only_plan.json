@@ -1,0 +1,10 @@
+{
+  "mode": "antibody_tcr_legacy_bulk",
+  "receptor": "IG",
+  "chains": [
+    "A",
+    "B"
+  ],
+  "fullChains": [],
+  "hasFv": false
+}
