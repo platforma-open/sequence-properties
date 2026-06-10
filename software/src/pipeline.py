@@ -15,7 +15,10 @@ Output column names are the contract from `workflow/src/process.tpl.tengo`.
 
 from __future__ import annotations
 
+import functools
 import logging
+import os
+from concurrent.futures import ProcessPoolExecutor
 from typing import Any
 
 import polars as pl
@@ -32,6 +35,39 @@ from properties import (
 log = logging.getLogger(__name__)
 
 PH = 7.0  # All charge values computed at pH 7 (spec default).
+
+
+# Parallelism. Below this row count the pool's process startup + pickle cost
+# outweighs the benefit, so we stay in-process. The threshold also keeps the
+# whole existing unit-test suite on the fast sequential path.
+_PARALLEL_MIN_ROWS = 2000
+
+
+def resolve_workers(workers: int | None) -> int:
+    """How many worker processes to use. Explicit arg wins (used by tests and
+    by main.py once it reads the platform's CPU allocation). Falls back to the
+    PL_COMPUTE_WORKERS env var, then os.cpu_count(). The RESULT never depends on
+    this number — only the wall-clock does — so an over- or under-estimate is a
+    speed concern, never a correctness one.
+    """
+    if workers is not None:
+        return max(1, int(workers))
+    env = os.environ.get("PL_COMPUTE_WORKERS")
+    if env and env.isdigit() and int(env) > 0:
+        return int(env)
+    return max(1, os.cpu_count() or 1)
+
+
+def _pmap(fn, items: list, workers: int, chunksize: int = 256) -> list:
+    """Map fn over items, preserving input order. Sequential below the
+    threshold or when workers<=1; otherwise a process pool. ProcessPoolExecutor
+    .map() preserves input order, so results align with items by index — the
+    property the byte-stable output depends on.
+    """
+    if workers <= 1 or len(items) < _PARALLEL_MIN_ROWS:
+        return [fn(x) for x in items]
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        return list(ex.map(fn, items, chunksize=chunksize))
 
 
 # ---------------------------------------------------------------------------
@@ -68,26 +104,23 @@ def _quantize_for_cid(df: pl.DataFrame) -> pl.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def run(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
-    """Dispatch by mode. Returns a dict with three entries:
-
-    - `properties` (DataFrame): one row per entity, columns per the plan.
-    - `aa_fraction` (DataFrame): long-format (entity_key, aminoAcid, value).
-      Empty body when mode is not peptide.
-    - `stats` (dict): dataset-level stats consumed by the workflow info layer
-      (e.g. R11c VHH detection — median CDR-H3 length per chain;
-      R9 — peptide count below the Instability Index length floor).
+def run(reads: pl.DataFrame, plan: dict[str, Any], workers: int | None = None) -> dict[str, Any]:
+    """Dispatch by mode. `workers` controls parallelism only — output is
+    identical for any value (see test_parallel_invariance). Returns a dict with
+    `properties`, `aa_fraction`, and `stats` entries (unchanged contract).
     """
+    n_workers = resolve_workers(workers)
     mode = plan["mode"]
     if mode == "peptide":
-        log.info("Running peptide mode (%d entities)", reads.height)
-        return run_peptide(reads)
+        log.info("Running peptide mode (%d entities, %d workers)", reads.height, n_workers)
+        return run_peptide(reads, n_workers)
     log.info(
-        "Running antibody/TCR mode (receptor=%s, %d clones)",
+        "Running antibody/TCR mode (receptor=%s, %d clones, %d workers)",
         plan.get("receptor", "IG"),
         reads.height,
+        n_workers,
     )
-    return run_antibody_tcr(reads, plan)
+    return run_antibody_tcr(reads, plan, n_workers)
 
 
 # ---------------------------------------------------------------------------
@@ -156,45 +189,48 @@ def _compute_peptide_row_from_ctx(ctx: SequenceContext) -> dict[str, float | Non
     }
 
 
-def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
-    """Compute peptide-mode outputs.
+def _peptide_worker(seq: str) -> tuple[dict[str, float | None], list[float | None] | None]:
+    """Picklable per-peptide unit: (properties row, 20 AA fractions in
+    STANDARD_AAS order | None). One SequenceContext per sequence, shared across
+    all 11 reads — same sharing the old inline loop relied on.
+    """
+    ctx = SequenceContext.from_seq(seq)
+    if ctx is None:
+        return (dict(_NA_PEPTIDE_ROW), None)
+    props = _compute_peptide_row_from_ctx(ctx)
+    fr = ctx.aa_fractions()
+    return (props, [fr[aa] for aa in STANDARD_AAS])
 
-    Builds one `SequenceContext` per sequence and reuses it for both the
-    properties row and the AA-fraction rows — so each sequence is `_prepare`d
-    once and BioPython objects are constructed once across all 11 reads.
-    Accumulates columnar arrays directly into a dict-of-lists (one allocation
-    per column, vs. one dict per row) and constructs the DataFrame from those.
+
+def run_peptide(reads: pl.DataFrame, workers: int = 1) -> dict[str, Any]:
+    """Compute peptide-mode outputs. Per-sequence work runs through `_pmap`
+    (sequential or pooled); results are reassembled in input order so the
+    serialized output is byte-identical regardless of worker count.
     """
     keys = reads["entity_key"].to_list()
     seqs = reads["sequence"].to_list()
     n = len(seqs)
 
     log.info("Computing peptide properties + AA fractions (%d sequences)", n)
-    prop_cols: dict[str, list[Any]] = {"entity_key": [], **{c: [] for c in PEPTIDE_PROPERTY_COLUMNS}}
+    results = _pmap(_peptide_worker, seqs, workers)
+
+    prop_cols: dict[str, list[Any]] = {"entity_key": list(keys), **{c: [] for c in PEPTIDE_PROPERTY_COLUMNS}}
     aa_entity: list[str] = []
     aa_amino: list[str] = []
     aa_value: list[float | None] = []
-    for k, s in zip(keys, seqs):
-        prop_cols["entity_key"].append(k)
-        ctx = SequenceContext.from_seq(s)
-        if ctx is None:
-            for c in PEPTIDE_PROPERTY_COLUMNS:
-                prop_cols[c].append(None)
-            # Emit one row per std AA with NA value, so the 2-axis PColumn
-            # keeps a uniform shape across entities.
+    for k, (props, fractions) in zip(keys, results):
+        for c in PEPTIDE_PROPERTY_COLUMNS:
+            prop_cols[c].append(props[c])
+        if fractions is None:
             for aa in STANDARD_AAS:
                 aa_entity.append(k)
                 aa_amino.append(aa)
                 aa_value.append(None)
         else:
-            row = _compute_peptide_row_from_ctx(ctx)
-            for c in PEPTIDE_PROPERTY_COLUMNS:
-                prop_cols[c].append(row[c])
-            fractions = ctx.aa_fractions()
-            for aa in STANDARD_AAS:
+            for aa, val in zip(STANDARD_AAS, fractions):
                 aa_entity.append(k)
                 aa_amino.append(aa)
-                aa_value.append(fractions[aa])
+                aa_value.append(val)
     properties = pl.DataFrame(
         prop_cols,
         schema={"entity_key": pl.Utf8, **{c: pl.Float64 for c in PEPTIDE_PROPERTY_COLUMNS}},
@@ -204,10 +240,6 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
         schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64},
     )
 
-    # R9 — flag whether any *real* peptide falls below the Instability Index
-    # floor. `if s` filters None / "" so the banner does not fire on empty
-    # cells (which are no peptide, not a short peptide); `0 < effective_length`
-    # filters sequences that clean to empty (e.g. all-non-standard residues).
     has_below_floor = any(0 < effective_length(s) < INSTABILITY_MIN_LENGTH for s in seqs if s)
     stats = {
         "medianCdr3Length": {},
@@ -411,7 +443,15 @@ def _median_cdr3_length_by_chain(reads: pl.DataFrame, chains: list[str]) -> dict
     return out
 
 
-def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
+def _antibody_worker(record: dict, plan: dict[str, Any]) -> dict[str, Any]:
+    """Picklable per-clone unit. `plan` is bound per-call via functools.partial;
+    it is a plain dict and pickles cleanly. Delegates to the existing
+    _compute_row_for so the computation is unchanged.
+    """
+    return _compute_row_for(record, plan)
+
+
+def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any], workers: int = 1) -> dict[str, Any]:
     chains = plan.get("chains", [])
     full_chains = plan.get("fullChains", [])
     n = reads.height
@@ -421,10 +461,14 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
         log.info("Reconstructing full chains %s and computing full-chain properties", list(full_chains))
     if plan.get("hasFv"):
         log.info("Computing Fv properties (paired VH+VL)")
+
     out_cols = _planned_output_columns(plan)
+    records = list(reads.iter_rows(named=True))
+    worker = functools.partial(_antibody_worker, plan=plan)
+    rows = _pmap(worker, records, workers)
+
     columns: dict[str, list[Any]] = {"entity_key": [], **{c: [] for c in out_cols}}
-    for record in reads.iter_rows(named=True):
-        row = _compute_row_for(record, plan)
+    for row in rows:
         columns["entity_key"].append(row["entity_key"])
         for c in out_cols:
             columns[c].append(row[c])
