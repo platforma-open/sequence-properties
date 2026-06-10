@@ -128,13 +128,12 @@ def run(reads: pl.DataFrame, plan: dict[str, Any], workers: int | None = None) -
     n_workers = resolve_workers(workers)
     mode = plan["mode"]
     if mode == "peptide":
-        log.info("Running peptide mode (%d entities, %d workers)", reads.height, n_workers)
+        log.info("Running peptide mode (%d entities)", reads.height)
         return run_peptide(reads, n_workers)
     log.info(
-        "Running antibody/TCR mode (receptor=%s, %d clones, %d workers)",
+        "Running antibody/TCR mode (receptor=%s, %d clones)",
         plan.get("receptor", "IG"),
         reads.height,
-        n_workers,
     )
     return run_antibody_tcr(reads, plan, n_workers)
 
