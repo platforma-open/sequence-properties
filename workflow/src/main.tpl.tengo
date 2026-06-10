@@ -344,8 +344,8 @@ wf.body(func(args) {
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
 	pyRun := exec.builder().
 		software(soft).
-		mem("4GiB").
-		cpu(1).
+		mem("8GiB").
+		cpu(8).
 		addFile("input.tsv", seqTable).
 		writeFile("plan.json", canonical.encode(plan)).
 		arg("--input").arg("input.tsv").
