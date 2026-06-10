@@ -45,6 +45,19 @@ _EXT_RED = np.array(
     dtype=np.float64,
 )
 
+# Dipeptide instability weights (Guruprasad et al. 1990) as a 20x20 matrix in
+# STANDARD_AAS x STANDARD_AAS order: _DIWV[i, j] == DIWV[STANDARD_AAS[i]][...[j]].
+# ProteinAnalysis.instability_index() resolves the same ProtParamData.DIWV nested
+# dict, so building the matrix from it (rather than retyping) keeps parity exact.
+_DIWV = np.array(
+    [[ProtParamData.DIWV[a][b] for b in STANDARD_AAS] for a in STANDARD_AAS],
+    dtype=np.float64,
+)
+
+# Spec R9 floor for the instability index — kept in sync with
+# properties.INSTABILITY_MIN_LENGTH (cleaned-sequence length below this -> NA).
+_INSTABILITY_MIN_LENGTH = 10
+
 _C_INDEX = STANDARD_AAS.index("C")
 _A_INDEX = _AA_INDEX["A"]
 _V_INDEX = _AA_INDEX["V"]
@@ -281,3 +294,45 @@ def isoelectric_point(
     pi = 0.5 * (lo_a + hi_a)
     pi[~(crossing & sub.valid)] = np.nan
     return pi
+
+
+# --------------------------------------------------------------------------- #
+# Instability index — the only ORDER-dependent property. The count matrix is
+# insufficient: it needs the consecutive-residue PAIRS of the cleaned sequence.
+# We clean each sequence to an index array (matching properties._prepare /
+# clean_sequence) and gather the dipeptide weights with numpy — NO BioPython
+# ProteinAnalysis object is constructed per row.
+#
+# Per the Guruprasad et al. 1990 method as implemented by
+# Bio.SeqUtils.ProtParam.ProteinAnalysis.instability_index over the CLEANED seq:
+#   score = sum(DIWV[seq[i]][seq[i+1]] for i in range(len - 1))
+#   index = (10.0 / len(seq)) * score
+# The scalar oracle (properties.SequenceContext.instability_index) additionally
+# returns None below the spec R9 floor (cleaned length < INSTABILITY_MIN_LENGTH).
+# --------------------------------------------------------------------------- #
+
+
+def instability_index(seqs: list[str | None]) -> np.ndarray:
+    """Guruprasad instability index per sequence, float64, NaN where the scalar
+    oracle returns None.
+
+    A row is NaN when the sequence is invalid (None / empty / contains a stop
+    codon `*` / nothing standard remains after cleaning) OR when the cleaned
+    (standard-AA-only) length is below `_INSTABILITY_MIN_LENGTH` (= 10). Order is
+    preserved: each row's value is a pure function of that row's sequence, with
+    no dict/set iteration leaking into the output.
+    """
+    n = len(seqs)
+    out = np.full(n, np.nan, dtype=np.float64)
+    for i, s in enumerate(seqs):
+        if s is None or s == "" or "*" in s:
+            continue
+        idx = [j for c in s.upper() if (j := _AA_INDEX.get(c)) is not None]
+        length = len(idx)
+        if length < _INSTABILITY_MIN_LENGTH:
+            # Includes the "nothing standard remains" case (length == 0).
+            continue
+        a = np.asarray(idx, dtype=np.intp)
+        score = _DIWV[a[:-1], a[1:]].sum()
+        out[i] = (10.0 / length) * score
+    return out
