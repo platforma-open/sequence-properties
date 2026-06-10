@@ -11,6 +11,7 @@ from Bio.Data.IUPACData import protein_weights
 from Bio.SeqUtils.ProtParam import ProtParamData
 
 from aa_tables import STANDARD_AAS
+from pka_tables import PKaSet
 
 _AA_INDEX = {aa: i for i, aa in enumerate(STANDARD_AAS)}
 
@@ -158,3 +159,69 @@ def aa_fractions(sub: Substrate) -> np.ndarray:
     )
     frac[~sub.valid] = np.nan
     return frac.astype(np.float64)
+
+
+# --------------------------------------------------------------------------- #
+# Charge — vectorized Henderson-Hasselbalch, byte-for-byte with BioPython's
+# Bio.SeqUtils.IsoelectricPoint.charge_at_pH:
+#
+#   positive_charge = sum over pos_pKs of  content[aa] / (10**(pH - pK) + 1.0)
+#   negative_charge = sum over neg_pKs of  content[aa] / (10**(pK - pH) + 1.0)
+#   charge          = positive_charge - negative_charge
+#
+# content[Nterm] = content[Cterm] = 1.0 (one terminus pair per sequence);
+# content[K/R/H/D/E/Y/C] = residue count. The scalar oracle injects IPC 2.0
+# pKa overrides (properties._ipc2_isoelectric_point): pos_pKs = {Nterm, K, R, H},
+# neg_pKs = {Cterm, D, E, Y} and C only when include_cys and "C" in side_chain.
+# --------------------------------------------------------------------------- #
+
+
+def _charge_raw(sub: Substrate, ph: float, pka_set: PKaSet, include_cys: bool) -> np.ndarray:
+    """Vectorized BioPython charge_at_pH over ALL rows — finite for every row,
+    invalid rows are NOT masked here. The public wrappers apply NaN via _mask.
+
+    Kept finite-for-all-rows on purpose: the pI bisection (Task 8) reuses this
+    over the same count matrix and needs a clean charge value per row.
+    """
+    c = sub.counts
+    # One N-terminus per sequence (count = 1), basic side chains K/R/H.
+    pos = 1.0 / (10 ** (ph - pka_set.n_terminus) + 1.0)
+    for aa in ("K", "R", "H"):
+        pk = pka_set.side_chain[aa]
+        pos = pos + c[:, _AA_INDEX[aa]] * (1.0 / (10 ** (ph - pk) + 1.0))
+
+    # One C-terminus per sequence (count = 1), acidic side chains D/E/Y (+C).
+    neg = 1.0 / (10 ** (pka_set.c_terminus - ph) + 1.0)
+    neg_aas = ["D", "E", "Y"]
+    if include_cys and "C" in pka_set.side_chain:
+        neg_aas.append("C")
+    for aa in neg_aas:
+        pk = pka_set.side_chain[aa]
+        neg = neg + c[:, _AA_INDEX[aa]] * (1.0 / (10 ** (pk - ph) + 1.0))
+
+    return pos - neg
+
+
+def charge_at_ph(sub: Substrate, ph: float, pka_set: PKaSet, include_cys: bool = True) -> np.ndarray:
+    """Net charge at a given pH, float64, NaN for invalid rows.
+
+    Mirrors properties.charge_at_ph (BioPython IsoelectricPoint.charge_at_pH
+    with IPC 2.0 pKa overrides).
+    """
+    return _mask(_charge_raw(sub, ph, pka_set, include_cys), sub.valid)
+
+
+def charge_shift(
+    sub: Substrate,
+    pka_set: PKaSet,
+    include_cys: bool = True,
+    ph_from: float = 7.4,
+    ph_to: float = 6.0,
+) -> np.ndarray:
+    """ΔCharge = charge(ph_from) - charge(ph_to), float64, NaN for invalid rows.
+
+    Mirrors properties.charge_shift (defaults ph_from=7.4, ph_to=6.0).
+    """
+    hi = _charge_raw(sub, ph_from, pka_set, include_cys)
+    lo = _charge_raw(sub, ph_to, pka_set, include_cys)
+    return _mask(hi - lo, sub.valid)
