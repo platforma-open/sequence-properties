@@ -1,0 +1,46 @@
+{
+  "planPath": "docs/superpowers/plans/2026-06-10-sequence-properties-parallel-compute.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Freeze full-output golden master",
+      "status": "pending",
+      "description": "**Goal:** Committed byte-exact snapshot of full CLI output for every mode + coverage tier + edge case, generated from current pre-refactor code, asserted via sha256. Safety net for Phases B/C.\n\n**Files:** software/tests/regression/{__init__.py, golden_cases.py, regen_golden.py, test_golden_master.py}; software/tests/data/golden/<case>/{properties.tsv,aa_fraction.tsv,stats.json}\n\n**Verify:** uv run pytest tests/regression/test_golden_master.py -v\n\n```json:metadata\n{\"files\": [\"software/tests/regression/__init__.py\",\"software/tests/regression/golden_cases.py\",\"software/tests/regression/regen_golden.py\",\"software/tests/regression/test_golden_master.py\",\"software/tests/data/golden/\"], \"verifyCommand\": \"uv run pytest tests/regression/test_golden_master.py -v\", \"acceptanceCriteria\": [\"all golden cases byte-match via sha256\",\"cases cover all modes/tiers/edge-cases\",\"goldens generated from pre-refactor code and committed\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Structural invariants at scale",
+      "status": "pending",
+      "description": "**Goal:** Pin invariants the parallel/streaming refactor must preserve — one output row per input entity, same key set, AA-fraction 20 rows/peptide, two runs byte-identical — at 5000 rows.\n\n**Files:** software/tests/regression/test_scale_invariants.py\n\n**Verify:** uv run pytest tests/regression/test_scale_invariants.py -v\n\n```json:metadata\n{\"files\": [\"software/tests/regression/test_scale_invariants.py\"], \"verifyCommand\": \"uv run pytest tests/regression/test_scale_invariants.py -v\", \"acceptanceCriteria\": [\"row count + key set preserved\",\"aa_fraction 20 rows/peptide\",\"byte-stable across two runs\",\"seeded RNG, marked slow\"]}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Parallelize per-row compute across a process pool",
+      "status": "pending",
+      "blockedBy": [1, 2],
+      "description": "**Goal:** Map existing pure per-row compute over a ProcessPoolExecutor, assemble in input order, keep sort + CID-quantization boundary, sequential fallback for small inputs/workers=1 — output byte-identical regardless of worker count.\n\n**Files:** Modify software/src/pipeline.py (resolve_workers, _pmap, _peptide_worker, _antibody_worker; thread workers through run/run_peptide/run_antibody_tcr — lines 71-91, 159-221, 414-439); Test software/tests/unit/test_parallel_invariance.py\n\n**Verify:** uv run pytest tests/unit/test_parallel_invariance.py tests/regression/ -v\n\n```json:metadata\n{\"files\": [\"software/src/pipeline.py\",\"software/tests/unit/test_parallel_invariance.py\"], \"verifyCommand\": \"uv run pytest tests/unit/test_parallel_invariance.py tests/regression/ -v\", \"acceptanceCriteria\": [\"workers=1 == workers=4 byte-identical\",\"golden master unchanged\",\"worker fns picklable/spawn-safe\",\"results in input order\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Resolve worker count from environment in CLI",
+      "status": "pending",
+      "blockedBy": [3],
+      "description": "**Goal:** CLI uses allocated cores at runtime without adding to argv — exec node command line stays constant so its CID does not change.\n\n**Files:** Modify software/src/main.py (import line 19; lines 44-46); Test software/tests/integration/test_cli.py\n\n**Verify:** uv run pytest tests/integration/test_cli.py -v\n\n```json:metadata\n{\"files\": [\"software/src/main.py\",\"software/tests/integration/test_cli.py\"], \"verifyCommand\": \"uv run pytest tests/integration/test_cli.py -v\", \"acceptanceCriteria\": [\"workers resolved from env, not argv\",\"argv unchanged (CID stable)\",\"PL_COMPUTE_WORKERS does not change output bytes\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Request more cores + memory on workflow exec step",
+      "status": "pending",
+      "blockedBy": [4],
+      "description": "**Goal:** Schedule the Python step with multiple cores + more memory; keep exec node identity stable.\n\n**Files:** Modify workflow/src/main.tpl.tengo (pyRun, lines 344-360): mem 4GiB->8GiB, cpu(1)->cpu(8); Create .changeset/seqprops-parallel-compute.md (.software patch + .workflow patch); Verify against core/platforma/sdk/workflow-tengo/src/exec/index.lib.tengo\n\n**Verify:** pnpm run build:dev (block root)\n\n```json:metadata\n{\"files\": [\"workflow/src/main.tpl.tengo\",\".changeset/seqprops-parallel-compute.md\"], \"verifyCommand\": \"pnpm run build:dev\", \"acceptanceCriteria\": [\"pyRun .cpu(8) + .mem(8GiB)\",\"no machine-dependent argv added\",\"cpu/mem-vs-CID verified against SDK\",\"build:dev succeeds\",\"changeset for workflow+software\"]}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 6 (OPTIONAL): Streaming compute path to bound memory",
+      "status": "pending",
+      "blockedBy": [5],
+      "description": "**OPTIONAL — decide at end.** Do not implement until Phase B merged + measured; the 8GiB bump may make this unnecessary.\n\n**Goal:** Process input in sorted batches, write output incrementally — peak memory O(batch). Output byte-identical (golden master is guard).\n\n**Files:** Modify software/src/io_layer.py, software/src/pipeline.py; Test software/tests/regression/test_streaming_equivalence.py\n\n**Verify (only if implemented):** uv run pytest tests/regression/test_streaming_equivalence.py tests/regression/test_golden_master.py -v\n\n```json:metadata\n{\"files\": [\"software/src/io_layer.py\",\"software/src/pipeline.py\",\"software/tests/regression/test_streaming_equivalence.py\"], \"verifyCommand\": \"uv run pytest tests/regression/test_streaming_equivalence.py tests/regression/test_golden_master.py -v\", \"acceptanceCriteria\": [\"decision gate recorded with RSS measurement\",\"streaming output byte-identical to in-memory\",\"golden master still passes\",\"env-gated, argv unchanged\"], \"optional\": true}\n```"
+    }
+  ],
+  "lastUpdated": "2026-06-10"
+}
