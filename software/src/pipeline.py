@@ -18,14 +18,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import numpy as np
 import polars as pl
 
+import vectorized as vec
 from aa_tables import STANDARD_AAS
 from pka_tables import IPC2_PEPTIDE, IPC2_PROTEIN
 from properties import (
     INSTABILITY_MIN_LENGTH,
-    SequenceContext,
-    _bisect_charge_zero,
     effective_length,
 )
 
@@ -94,7 +94,21 @@ def _quantize_for_cid(df: pl.DataFrame) -> pl.DataFrame:
     for c in df.columns:
         dp = _decimals_for(c)
         if dp is not None and df.schema[c] == pl.Float64:
-            exprs.append(pl.col(c).round(dp))
+            # Round, then canonicalize signed zero to `+0.0`. A property whose
+            # true value is ~0 (e.g. GRAVY of a charge-balanced chain) lands on a
+            # sub-ULP residual whose SIGN depends on summation order — the scalar
+            # BioPython path sums in residue order, the vectorized `counts @ KD`
+            # in AA-index order, so the same numeric zero rounds to `-0.0` on one
+            # and `+0.0` on the other. Both are numerically equal, but the TSV
+            # writer emits different bytes (`-0.0` vs `0.0`). `-0.0 == 0.0` is
+            # True in polars, so the `when` maps BOTH signed zeros to `+0.0`
+            # (note: `col + 0.0` does NOT canonicalize in polars — it preserves
+            # the negative-zero bit). This makes the content-addressable id
+            # insensitive to FP-residual-sign drift — the same determinism
+            # guarantee the rounding already gives the other digits. round(null)
+            # is null and `null == 0.0` is null, so NA cells stay null/empty.
+            rounded = pl.col(c).round(dp)
+            exprs.append(pl.when(rounded == 0.0).then(pl.lit(0.0)).otherwise(rounded).alias(c))
     return df.with_columns(exprs) if exprs else df
 
 
@@ -143,111 +157,82 @@ PEPTIDE_PROPERTY_COLUMNS = [
 ]
 
 
-_NA_PEPTIDE_ROW: dict[str, float | None] = dict.fromkeys(PEPTIDE_PROPERTY_COLUMNS)
+def _na_to_null(values: np.ndarray) -> pl.Series:
+    """Wrap a numpy float64 array as a Float64 polars Series with NaN -> null.
 
-
-def _compute_peptide_row(seq: str) -> dict[str, float | None]:
-    """All 9 scalar properties for a single peptide. Cys is included as
-    ionizable (free thiol assumption) — the IPC 2.0 peptide pKa set is used.
-
-    Uses one `SequenceContext` per sequence so `_prepare`, `ProteinAnalysis`,
-    and `IsoelectricPoint(IPC2_PEPTIDE, include_cys=True)` are constructed
-    exactly once and shared across all 10 property reads.
+    THE #1 vectorization trap: the vectorized functions emit `np.nan` for NA
+    rows, but the golden's NA cells are EMPTY. A NaN survives to TSV as the
+    literal "NaN", not an empty cell. `fill_nan(None)` converts NaN -> null so
+    the IO layer writes an empty cell, matching the scalar `None` -> empty path.
     """
-    ctx = SequenceContext.from_seq(seq)
-    if ctx is None:
-        return dict(_NA_PEPTIDE_ROW)
-    eox, ered = ctx.extinction_coefficients()
-    return {
-        "charge_peptide": ctx.charge_at_ph(PH, IPC2_PEPTIDE, include_cys=True),
-        "chargeShift_peptide": ctx.charge_shift(IPC2_PEPTIDE, include_cys=True),
-        "gravy_peptide": ctx.gravy(),
-        "mw_peptide": ctx.molecular_weight(),
-        "pi_peptide": ctx.isoelectric_point(IPC2_PEPTIDE, include_cys=True),
-        "eox_peptide": eox,
-        "ered_peptide": ered,
-        "instability_peptide": ctx.instability_index(),
-        "aliphatic_peptide": ctx.aliphatic_index(),
-        "aromaticity_peptide": ctx.aromaticity(),
-    }
-
-
-def _compute_peptide_row_from_ctx(ctx: SequenceContext) -> dict[str, float | None]:
-    """Variant that takes a pre-built context — used when `run_peptide` already
-    constructed one to share with the AA-fraction pass.
-    """
-    eox, ered = ctx.extinction_coefficients()
-    return {
-        "charge_peptide": ctx.charge_at_ph(PH, IPC2_PEPTIDE, include_cys=True),
-        "chargeShift_peptide": ctx.charge_shift(IPC2_PEPTIDE, include_cys=True),
-        "gravy_peptide": ctx.gravy(),
-        "mw_peptide": ctx.molecular_weight(),
-        "pi_peptide": ctx.isoelectric_point(IPC2_PEPTIDE, include_cys=True),
-        "eox_peptide": eox,
-        "ered_peptide": ered,
-        "instability_peptide": ctx.instability_index(),
-        "aliphatic_peptide": ctx.aliphatic_index(),
-        "aromaticity_peptide": ctx.aromaticity(),
-    }
+    return pl.Series(values=values, dtype=pl.Float64).fill_nan(None)
 
 
 def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
-    """Compute peptide-mode outputs.
+    """Compute peptide-mode outputs on the vectorized engine.
 
-    Builds one `SequenceContext` per sequence and reuses it for both the
-    properties row and the AA-fraction rows — so each sequence is `_prepare`d
-    once and BioPython objects are constructed once across all 11 reads.
-    Accumulates columnar arrays directly into a dict-of-lists (one allocation
-    per column, vs. one dict per row) and constructs the DataFrame from those.
+    Builds the per-residue count substrate once over the `sequence` column, then
+    derives all 10 peptide properties + the AA-fraction matrix with array ops.
+    charge / chargeShift / pi use the IPC 2.0 peptide pKa set with Cys included
+    as ionizable (free thiol); the rest are the linear / instability funcs.
+
+    NaN -> null is applied to every emitted float column (and the AA-fraction
+    `value`) so NA rows render as empty cells, byte-matching the scalar path.
     """
     keys = reads["entity_key"].to_list()
     seqs = reads["sequence"].to_list()
     n = len(seqs)
 
     log.info("Computing peptide properties + AA fractions (%d sequences)", n)
-    prop_cols: dict[str, list[Any]] = {"entity_key": [], **{c: [] for c in PEPTIDE_PROPERTY_COLUMNS}}
-    aa_entity: list[str] = []
-    aa_amino: list[str] = []
-    aa_value: list[float | None] = []
-    for k, s in zip(keys, seqs):
-        prop_cols["entity_key"].append(k)
-        ctx = SequenceContext.from_seq(s)
-        if ctx is None:
-            for c in PEPTIDE_PROPERTY_COLUMNS:
-                prop_cols[c].append(None)
-            # Emit one row per std AA with NA value, so the 2-axis PColumn
-            # keeps a uniform shape across entities.
-            for aa in STANDARD_AAS:
-                aa_entity.append(k)
-                aa_amino.append(aa)
-                aa_value.append(None)
-        else:
-            row = _compute_peptide_row_from_ctx(ctx)
-            for c in PEPTIDE_PROPERTY_COLUMNS:
-                prop_cols[c].append(row[c])
-            fractions = ctx.aa_fractions()
-            for aa in STANDARD_AAS:
-                aa_entity.append(k)
-                aa_amino.append(aa)
-                aa_value.append(fractions[aa])
+    sub = vec.build_counts(seqs)
+
+    eox, ered = vec.extinction(sub)
+    prop_arrays: dict[str, np.ndarray] = {
+        "charge_peptide": vec.charge_at_ph(sub, PH, IPC2_PEPTIDE, include_cys=True),
+        "chargeShift_peptide": vec.charge_shift(sub, IPC2_PEPTIDE, include_cys=True),
+        "gravy_peptide": vec.gravy(sub),
+        "mw_peptide": vec.molecular_weight(sub),
+        "pi_peptide": vec.isoelectric_point(sub, IPC2_PEPTIDE, include_cys=True),
+        "eox_peptide": eox,
+        "ered_peptide": ered,
+        "instability_peptide": vec.instability_index(seqs),
+        "aliphatic_peptide": vec.aliphatic_index(sub),
+        "aromaticity_peptide": vec.aromaticity(sub),
+    }
     properties = pl.DataFrame(
-        prop_cols,
-        schema={"entity_key": pl.Utf8, **{c: pl.Float64 for c in PEPTIDE_PROPERTY_COLUMNS}},
+        {
+            "entity_key": pl.Series(values=keys, dtype=pl.Utf8),
+            **{c: _na_to_null(prop_arrays[c]) for c in PEPTIDE_PROPERTY_COLUMNS},
+        }
     )
+
+    # AA-fraction long frame from the (N, 20) mole-fraction matrix: 20 rows per
+    # entity (one per STANDARD_AAS), value NaN -> null for invalid entities so
+    # the 2-axis PColumn keeps a uniform shape across entities.
+    fractions = vec.aa_fractions(sub)  # (N, 20), NaN for invalid rows
+    aa_entity = [k for k in keys for _ in STANDARD_AAS]
+    aa_amino = list(STANDARD_AAS) * n
+    aa_value = fractions.reshape(-1)  # row-major: entity 0's 20 AAs, then entity 1's, ...
     aa_fraction = pl.DataFrame(
-        {"entity_key": aa_entity, "aminoAcid": aa_amino, "value": aa_value},
-        schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64},
+        {
+            "entity_key": pl.Series(values=aa_entity, dtype=pl.Utf8),
+            "aminoAcid": pl.Series(values=aa_amino, dtype=pl.Utf8),
+            "value": _na_to_null(aa_value),
+        }
     )
     # Quantize at the output boundary like the property columns. aaFraction
     # displays as .3f; round to 5 dp (one digit below display, headroom for the
-    # upcoming vectorization's FP drift). `value` is a closed-form ratio today,
-    # so rounding only trims repeating-decimal tails — no display change.
+    # vectorization's FP drift). round(null) == null, so NA cells stay empty.
     aa_fraction = aa_fraction.with_columns(pl.col("value").round(5))
 
     # R9 — flag whether any *real* peptide falls below the Instability Index
     # floor. `if s` filters None / "" so the banner does not fire on empty
-    # cells (which are no peptide, not a short peptide); `0 < effective_length`
-    # filters sequences that clean to empty (e.g. all-non-standard residues).
+    # cells (no peptide, not a short peptide); `0 < effective_length` filters
+    # sequences that clean to empty (all-non-standard residues). NOTE: this is
+    # the scalar `effective_length` count, NOT `sub.length`: a stop-codon cell
+    # like "ACDE*FGHI" is substrate-INVALID (length 0) but still has 8 standard
+    # residues, which the scalar oracle counts toward the floor. Using
+    # effective_length keeps this stat bit-identical to the scalar path.
     has_below_floor = any(0 < effective_length(s) < INSTABILITY_MIN_LENGTH for s in seqs if s)
     stats = {
         "medianCdr3Length": {},
@@ -282,82 +267,6 @@ FV_PROPS = ("charge", "chargeShift", "pi", "eox", "ered", "mw")
 REQUIRED_FEATURES = ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")
 
 
-_NA_CDR3_ROW: dict[str, float | None] = dict.fromkeys(CDR3_PROPS)
-_NA_FULL_CHAIN_ROW: dict[str, float | None] = dict.fromkeys(FULL_CHAIN_PROPS)
-_NA_FV_ROW: dict[str, float | None] = dict.fromkeys(FV_PROPS)
-
-
-def _compute_cdr3_row(cdr3: str) -> dict[str, float | None]:
-    """CDR3 charge, ΔCharge, and GRAVY. CDR3 uses the IPC 2.0 peptide pKa set
-    with Cys included as ionizable (per spec — CDR3 Cys treated as free thiol).
-    """
-    ctx = SequenceContext.from_seq(cdr3)
-    if ctx is None:
-        return dict(_NA_CDR3_ROW)
-    return {
-        "charge": ctx.charge_at_ph(PH, IPC2_PEPTIDE, include_cys=True),
-        "chargeShift": ctx.charge_shift(IPC2_PEPTIDE, include_cys=True),
-        "gravy": ctx.gravy(),
-    }
-
-
-def _compute_full_chain_row(chain_seq: str) -> dict[str, float | None]:
-    """Full-chain (VH / VL etc.) — protein pKa set, Cys excluded from
-    ionisation (assumed disulfide-bonded). One context, one ProteinAnalysis,
-    one IsoelectricPoint shared across all 9 reads.
-    """
-    return _compute_full_chain_row_from_ctx(SequenceContext.from_seq(chain_seq))
-
-
-def _compute_full_chain_row_from_ctx(ctx: SequenceContext | None) -> dict[str, float | None]:
-    if ctx is None:
-        return dict(_NA_FULL_CHAIN_ROW)
-    eox, ered = ctx.extinction_coefficients()
-    return {
-        "charge": ctx.charge_at_ph(PH, IPC2_PROTEIN, include_cys=False),
-        "pi": ctx.isoelectric_point(IPC2_PROTEIN, include_cys=False),
-        "gravy": ctx.gravy(),
-        "mw": ctx.molecular_weight(),
-        "eox": eox,
-        "ered": ered,
-        "instability": ctx.instability_index(),
-        "aliphatic": ctx.aliphatic_index(),
-        "aromaticity": ctx.aromaticity(),
-    }
-
-
-def _compute_fv_row(vh: str, vl: str) -> dict[str, float | None]:
-    """Fv columns — IPC 2.0 protein set, Cys-excluded. pI uses the per-chain
-    sum of charge functions (NOT a concatenated string), per spec. Fv
-    ΔCharge = ΔCharge(VH) + ΔCharge(VL).
-
-    Builds one context per chain so the chain-level full-chain pass and the
-    Fv pass share their `IsoelectricPoint(IPC2_PROTEIN, include_cys=False)` —
-    the same IP serves both `charge_at_ph(7.0)` and the bisection here.
-    """
-    return _compute_fv_row_from_ctx(SequenceContext.from_seq(vh), SequenceContext.from_seq(vl))
-
-
-def _compute_fv_row_from_ctx(
-    vh_ctx: SequenceContext | None,
-    vl_ctx: SequenceContext | None,
-) -> dict[str, float | None]:
-    if vh_ctx is None or vl_ctx is None:
-        return dict(_NA_FV_ROW)
-    ox_vh, red_vh = vh_ctx.extinction_coefficients()
-    ox_vl, red_vl = vl_ctx.extinction_coefficients()
-    fn_vh = vh_ctx.isoelectric(IPC2_PROTEIN, include_cys=False).charge_at_pH
-    fn_vl = vl_ctx.isoelectric(IPC2_PROTEIN, include_cys=False).charge_at_pH
-    return {
-        "charge": fn_vh(PH) + fn_vl(PH),
-        "chargeShift": (fn_vh(7.4) - fn_vh(6.0)) + (fn_vl(7.4) - fn_vl(6.0)),
-        "pi": _bisect_charge_zero(lambda ph: fn_vh(ph) + fn_vl(ph)),
-        "eox": ox_vh + ox_vl,
-        "ered": red_vh + red_vl,
-        "mw": vh_ctx.molecular_weight() + vl_ctx.molecular_weight(),
-    }
-
-
 def _reconstruct_chain(row: dict[str, str], chain: str) -> str | None:
     """Concatenate FR1+CDR1+FR2+CDR2+FR3+CDR3+FR4. Returns None if any
     region is missing (empty string in input).
@@ -375,10 +284,10 @@ def _reconstruct_chain(row: dict[str, str], chain: str) -> str | None:
 def _planned_output_columns(plan: dict[str, Any]) -> list[str]:
     """Output column order — matches process.tpl.tengo's xsv import expectations.
 
-    This and `_compute_row_for` are sibling functions: the column list and
-    per-row population both walk (chains × CDR3_PROPS), (fullChains × FULL_CHAIN_PROPS),
-    and conditionally FV_PROPS. Property name tuples (CDR3_PROPS, FULL_CHAIN_PROPS,
-    FV_PROPS) are the single source of truth — both functions consume them.
+    Walks (chains × CDR3_PROPS), (fullChains × FULL_CHAIN_PROPS), and
+    conditionally FV_PROPS. The property name tuples (CDR3_PROPS,
+    FULL_CHAIN_PROPS, FV_PROPS) are the single source of truth — `run_antibody_tcr`
+    populates exactly these columns in this order.
     """
     cols: list[str] = []
     for ch in plan.get("chains", []):
@@ -388,45 +297,6 @@ def _planned_output_columns(plan: dict[str, Any]) -> list[str]:
     if plan.get("hasFv"):
         cols.extend(f"{p}_Fv" for p in FV_PROPS)
     return cols
-
-
-def _compute_row_for(record: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
-    """Build the output row for one input record. The set of populated
-    columns matches `_planned_output_columns(plan)` exactly — both are
-    driven by the same plan keys and shared property tuples.
-
-    For each chain, the reconstructed full-chain context is held and reused
-    by the Fv pass below, so VH/VL `IsoelectricPoint(IPC2_PROTEIN, False)` is
-    constructed once per clone instead of twice.
-    """
-    out: dict[str, Any] = {"entity_key": record["entity_key"]}
-
-    # CDR3 per chain — empty cell ⇒ NA for this clone, not for the column.
-    for ch in plan.get("chains", []):
-        cdr3_props = _compute_cdr3_row(record.get(f"{ch}_CDR3") or "")
-        for p in CDR3_PROPS:
-            out[f"{p}_{ch}_CDR3"] = cdr3_props[p]
-
-    # Full chain — reconstruct then compute. NA per-clone if any of the
-    # seven regions is empty for that clone. Cache contexts for Fv reuse.
-    chain_ctx: dict[str, SequenceContext | None] = {}
-    for ch in plan.get("fullChains", []):
-        reconstructed = _reconstruct_chain(record, ch)
-        ctx = SequenceContext.from_seq(reconstructed) if reconstructed is not None else None
-        chain_ctx[ch] = ctx
-        full_props = _compute_full_chain_row_from_ctx(ctx)
-        for p in FULL_CHAIN_PROPS:
-            out[f"{p}_{ch}_VDJRegion"] = full_props[p]
-
-    # Fv — only when both VH and VL fully reconstructed for this clone.
-    # Reuses the per-chain contexts from the full-chain pass above so the
-    # IPC2_PROTEIN/include_cys=False IsoelectricPoint is shared.
-    if plan.get("hasFv"):
-        fv = _compute_fv_row_from_ctx(chain_ctx.get("A"), chain_ctx.get("B"))
-        for p in FV_PROPS:
-            out[f"{p}_Fv"] = fv[p]
-
-    return out
 
 
 def _median_cdr3_length_by_chain(reads: pl.DataFrame, chains: list[str]) -> dict[str, float]:
@@ -451,7 +321,52 @@ def _median_cdr3_length_by_chain(reads: pl.DataFrame, chains: list[str]) -> dict
     return out
 
 
+def _column_or_empty(reads: pl.DataFrame, col: str) -> list[str | None]:
+    """Return `col` as a python list, or a list of empty strings (one per row)
+    when the column is absent from the reads. Mirrors the old per-row
+    `record.get(col, "")` / `record.get(col) or ""` defence against a plan that
+    names a chain/region the input TSV does not carry.
+    """
+    if col not in reads.columns:
+        return [""] * reads.height
+    return reads[col].to_list()
+
+
+def _reconstruct_chain_column(reads: pl.DataFrame, chain: str) -> list[str | None]:
+    """Reconstruct the full chain for every clone: FR1+CDR1+...+FR4, None if any
+    region is missing (empty cell OR absent column).
+
+    Pulls each region column once, then delegates the per-clone rule to
+    `_reconstruct_chain` so the reconstruction logic has a single source of
+    truth. A region column absent from the reads is materialised as empty
+    strings, so the missing-region -> None rule fires the same way.
+    """
+    cols = {feat: _column_or_empty(reads, f"{chain}_{feat}") for feat in REQUIRED_FEATURES}
+    out: list[str | None] = []
+    for i in range(reads.height):
+        row = {f"{chain}_{feat}": cols[feat][i] for feat in REQUIRED_FEATURES}
+        out.append(_reconstruct_chain(row, chain))
+    return out
+
+
 def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
+    """Compute antibody/TCR-mode outputs on the vectorized engine.
+
+    * CDR3 (per `plan["chains"]`): build_counts on the `{chain}_CDR3` column ->
+      charge / chargeShift / gravy with the IPC 2.0 peptide pKa set, Cys
+      included (CDR3 Cys treated as free thiol). NaN where the CDR3 cell is
+      empty / invalid.
+    * Full chain (per `plan["fullChains"]`): reconstruct FR1..FR4 -> build_counts
+      -> charge / pi (IPC 2.0 protein, Cys excluded) + gravy / mw / eox / ered /
+      instability / aliphatic / aromaticity. NaN where ANY region is missing.
+    * Fv (when `plan["hasFv"]`): per-chain SUMS over VH=A, VL=B — charge,
+      chargeShift, eox, ered, mw additive; pi = bisection of the SUMMED charge
+      function. NaN where EITHER chain is not fully reconstructed.
+
+    Every emitted float column has NaN -> null applied so NA rows render as
+    empty cells, byte-matching the scalar path. Column order is
+    `_planned_output_columns(plan)`.
+    """
     chains = plan.get("chains", [])
     full_chains = plan.get("fullChains", [])
     n = reads.height
@@ -461,15 +376,70 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
         log.info("Reconstructing full chains %s and computing full-chain properties", list(full_chains))
     if plan.get("hasFv"):
         log.info("Computing Fv properties (paired VH+VL)")
+
+    series: dict[str, pl.Series] = {"entity_key": pl.Series(values=reads["entity_key"].to_list(), dtype=pl.Utf8)}
+
+    # CDR3 per chain — IPC2_PEPTIDE, Cys included. Empty cell -> NA for this
+    # clone (build_counts marks it invalid -> the funcs emit NaN -> null).
+    for ch in chains:
+        sub = vec.build_counts(_column_or_empty(reads, f"{ch}_CDR3"))
+        cdr3_arrays = {
+            "charge": vec.charge_at_ph(sub, PH, IPC2_PEPTIDE, include_cys=True),
+            "chargeShift": vec.charge_shift(sub, IPC2_PEPTIDE, include_cys=True),
+            "gravy": vec.gravy(sub),
+        }
+        for p in CDR3_PROPS:
+            series[f"{p}_{ch}_CDR3"] = _na_to_null(cdr3_arrays[p])
+
+    # Full chain — reconstruct then compute. IPC2_PROTEIN, Cys excluded. NA per
+    # clone where any region is missing (reconstruction None -> invalid row).
+    # Cache the per-chain substrates for Fv reuse below.
+    chain_subs: dict[str, vec.Substrate] = {}
+    chain_seqs: dict[str, list[str | None]] = {}
+    for ch in full_chains:
+        seqs = _reconstruct_chain_column(reads, ch)
+        sub = vec.build_counts(seqs)
+        chain_subs[ch] = sub
+        chain_seqs[ch] = seqs
+        eox, ered = vec.extinction(sub)
+        full_arrays = {
+            "charge": vec.charge_at_ph(sub, PH, IPC2_PROTEIN, include_cys=False),
+            "pi": vec.isoelectric_point(sub, IPC2_PROTEIN, include_cys=False),
+            "gravy": vec.gravy(sub),
+            "mw": vec.molecular_weight(sub),
+            "eox": eox,
+            "ered": ered,
+            "instability": vec.instability_index(seqs),
+            "aliphatic": vec.aliphatic_index(sub),
+            "aromaticity": vec.aromaticity(sub),
+        }
+        for p in FULL_CHAIN_PROPS:
+            series[f"{p}_{ch}_VDJRegion"] = _na_to_null(full_arrays[p])
+
+    # Fv — per-chain sums over VH=A, VL=B. charge/chargeShift/eox/ered/mw are
+    # additive (NaN propagates if either chain invalid); pi bisects the SUMMED
+    # charge function. Reuses the cached full-chain substrates so the chains are
+    # reconstructed/counted once. Mirrors scalar `_compute_fv_row_from_ctx`.
+    if plan.get("hasFv"):
+        sub_vh = chain_subs["A"]
+        sub_vl = chain_subs["B"]
+        eox_vh, ered_vh = vec.extinction(sub_vh)
+        eox_vl, ered_vl = vec.extinction(sub_vl)
+        fv_arrays = {
+            "charge": vec.charge_at_ph(sub_vh, PH, IPC2_PROTEIN, include_cys=False)
+            + vec.charge_at_ph(sub_vl, PH, IPC2_PROTEIN, include_cys=False),
+            "chargeShift": vec.charge_shift(sub_vh, IPC2_PROTEIN, include_cys=False)
+            + vec.charge_shift(sub_vl, IPC2_PROTEIN, include_cys=False),
+            "pi": vec.fv_isoelectric_point(sub_vh, sub_vl, IPC2_PROTEIN, include_cys=False),
+            "eox": eox_vh + eox_vl,
+            "ered": ered_vh + ered_vl,
+            "mw": vec.molecular_weight(sub_vh) + vec.molecular_weight(sub_vl),
+        }
+        for p in FV_PROPS:
+            series[f"{p}_Fv"] = _na_to_null(fv_arrays[p])
+
     out_cols = _planned_output_columns(plan)
-    columns: dict[str, list[Any]] = {"entity_key": [], **{c: [] for c in out_cols}}
-    for record in reads.iter_rows(named=True):
-        row = _compute_row_for(record, plan)
-        columns["entity_key"].append(row["entity_key"])
-        for c in out_cols:
-            columns[c].append(row[c])
-    schema = {"entity_key": pl.Utf8, **{c: pl.Float64 for c in out_cols}}
-    properties = pl.DataFrame(columns, schema=schema)
+    properties = pl.DataFrame({"entity_key": series["entity_key"], **{c: series[c] for c in out_cols}})
     aa_fraction = pl.DataFrame(schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64})
     stats = {"medianCdr3Length": _median_cdr3_length_by_chain(reads, chains)}
     return {
