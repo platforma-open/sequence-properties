@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 from io_layer import read_input_tsv, read_plan, write_output_tsv
-from pipeline import run
+from pipeline import resolve_workers, run
 
 
 def _configure_logging() -> None:
@@ -43,7 +43,9 @@ def main(argv: list[str] | None = None) -> int:
 
     reads = read_input_tsv(args.input)
     plan = read_plan(args.plan)
-    outputs = run(reads, plan)
+    workers = resolve_workers(None)
+    logging.getLogger(__name__).info("Using %d compute worker(s)", workers)
+    outputs = run(reads, plan, workers=workers)
     write_output_tsv(outputs["properties"], args.output, sort_keys=["entity_key"])
     write_output_tsv(outputs["aa_fraction"], args.aa_fraction, sort_keys=["entity_key", "aminoAcid"])
     Path(args.stats).write_text(json.dumps(outputs["stats"], sort_keys=True, separators=(",", ":")))

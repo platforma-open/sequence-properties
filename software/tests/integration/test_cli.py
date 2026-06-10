@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 from main import main
 
@@ -387,3 +388,24 @@ def test_cli_writes_progress_to_stderr(tmp_path: Path, capsys):
     captured = capsys.readouterr()
     assert "peptide" in captured.err.lower(), captured.err
     assert "scalar" in captured.err.lower() or "properties" in captured.err.lower(), captured.err
+
+
+# Worker count comes from PL_COMPUTE_WORKERS (env), never argv, and must not
+# change output bytes — only wall-clock. 2500 rows exceed the parallel
+# threshold, so PL_COMPUTE_WORKERS=1 runs sequentially while =4 runs the pool:
+# this proves the env knob selects the path AND the CLI output is invariant.
+@pytest.mark.slow
+def test_env_worker_count_does_not_change_output(tmp_path: Path, monkeypatch):
+    import random
+
+    rng = random.Random(0)
+    aas = "ACDEFGHIKLMNPQRSTVWY"
+    rows = [
+        {"entity_key": f"p{i}", "sequence": "".join(rng.choice(aas) for _ in range(rng.randint(5, 25)))}
+        for i in range(2500)
+    ]
+    monkeypatch.setenv("PL_COMPUTE_WORKERS", "1")
+    out_a, _ = _run_peptide(tmp_path, "_w1", rows)
+    monkeypatch.setenv("PL_COMPUTE_WORKERS", "4")
+    out_b, _ = _run_peptide(tmp_path, "_w4", rows)
+    assert _sha256(out_a) == _sha256(out_b)
