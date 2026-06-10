@@ -545,13 +545,14 @@ class TestPipelineLogging:
             run(reads, {"mode": "peptide"})
         assert any("peptide" in r.message.lower() for r in caplog.records), caplog.text
 
-    def test_peptide_path_logs_scalar_and_aa_milestones(self, caplog: pytest.LogCaptureFixture):
+    def test_peptide_path_logs_properties_and_aa_milestones(self, caplog: pytest.LogCaptureFixture):
         reads = pl.DataFrame({"entity_key": ["p1"], "sequence": ["ACDEFGHIKL"]})
         with caplog.at_level(logging.INFO, logger="pipeline"):
             run(reads, {"mode": "peptide"})
         text = caplog.text.lower()
-        # One milestone for scalar properties, one for AA fractions.
-        assert "scalar" in text or "properties" in text, caplog.text
+        # The peptide path logs one milestone covering both properties and AA
+        # fractions ("Computing peptide properties + AA fractions").
+        assert "properties" in text, caplog.text
         assert "aa" in text or "amino" in text or "fraction" in text, caplog.text
 
     def test_run_logs_antibody_mode_dispatch(self, caplog: pytest.LogCaptureFixture):

@@ -1,8 +1,7 @@
 """Parity + determinism tests: vectorized Fv isoelectric point vs the scalar oracle.
 
 The vectorized Fv pI (vectorized.fv_isoelectric_point) bisects the per-chain
-charge SUM, mirroring the scalar `properties.fv_isoelectric_point` (and the
-Fv-row path in `pipeline._compute_fv_row_from_ctx`) exactly:
+charge SUM, mirroring the scalar `properties.fv_isoelectric_point` exactly:
 
 * SAME bracket [0, 14], SAME tol 1e-3 -> SAME data-independent iteration count;
 * SAME branch test `(f_mid > 0) == (f_lo > 0)`;
@@ -43,27 +42,19 @@ _seq = st.one_of(
 pairs = st.lists(st.tuples(_seq, _seq), min_size=1, max_size=25)
 
 
-@given(pairs, st.booleans())
-def test_fv_pi_parity(pairs, inc):
+@given(pairs)
+def test_fv_pi_parity(pairs):
     vhs = [vh for vh, _ in pairs]
     vls = [vl for _, vl in pairs]
     sub_vh = build_counts(vhs)
     sub_vl = build_counts(vls)
-    vec = fv_isoelectric_point(sub_vh, sub_vl, IPC2_PROTEIN, include_cys=inc)
+    # The pipeline only ever uses Fv pI with include_cys=False (the full-chain
+    # rule). Compare against the PUBLIC scalar oracle, which hard-codes that rule.
+    vec = fv_isoelectric_point(sub_vh, sub_vl, IPC2_PROTEIN, include_cys=False)
     assert vec.dtype == np.float64
     assert vec.shape == (len(pairs),)
     for i, (vh, vl) in enumerate(pairs):
-        # Scalar fv_isoelectric_point hard-codes include_cys=False; mirror its
-        # cleaning here and bisect the SUM with the requested include_cys so the
-        # parity holds for both settings.
-        vh_clean = scalar._prepare(vh)
-        vl_clean = scalar._prepare(vl)
-        if vh_clean is None or vl_clean is None:
-            assert math.isnan(vec[i])
-            continue
-        ip_vh = scalar._ipc2_isoelectric_point(vh_clean, IPC2_PROTEIN, include_cys=inc)
-        ip_vl = scalar._ipc2_isoelectric_point(vl_clean, IPC2_PROTEIN, include_cys=inc)
-        exp = scalar._bisect_charge_zero(lambda ph: ip_vh.charge_at_pH(ph) + ip_vl.charge_at_pH(ph))
+        exp = scalar.fv_isoelectric_point(vh, vl, IPC2_PROTEIN)
         if exp is None:
             assert math.isnan(vec[i])
         else:
