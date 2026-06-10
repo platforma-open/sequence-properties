@@ -1,0 +1,11 @@
+entity_key	sequence
+p_valid	ACDEFGHIKL
+p_basic	KKKKHHHHHH
+p_acidic	DDDDEEEEEE
+p_short	RPPGFSPF
+p_no_aromatic	AAAAAAAAAA
+p_paired_cys	CYIQNCPLG
+p_nonstd	ACDXEFGHIK
+p_all_nonstd	XXXXX
+p_stop	ACDE*GHIK
+p_empty	

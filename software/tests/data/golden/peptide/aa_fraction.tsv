@@ -1,0 +1,201 @@
+entity_key	aminoAcid	value
+p_acidic	A	0.0
+p_acidic	C	0.0
+p_acidic	D	0.4
+p_acidic	E	0.6
+p_acidic	F	0.0
+p_acidic	G	0.0
+p_acidic	H	0.0
+p_acidic	I	0.0
+p_acidic	K	0.0
+p_acidic	L	0.0
+p_acidic	M	0.0
+p_acidic	N	0.0
+p_acidic	P	0.0
+p_acidic	Q	0.0
+p_acidic	R	0.0
+p_acidic	S	0.0
+p_acidic	T	0.0
+p_acidic	V	0.0
+p_acidic	W	0.0
+p_acidic	Y	0.0
+p_all_nonstd	A	
+p_all_nonstd	C	
+p_all_nonstd	D	
+p_all_nonstd	E	
+p_all_nonstd	F	
+p_all_nonstd	G	
+p_all_nonstd	H	
+p_all_nonstd	I	
+p_all_nonstd	K	
+p_all_nonstd	L	
+p_all_nonstd	M	
+p_all_nonstd	N	
+p_all_nonstd	P	
+p_all_nonstd	Q	
+p_all_nonstd	R	
+p_all_nonstd	S	
+p_all_nonstd	T	
+p_all_nonstd	V	
+p_all_nonstd	W	
+p_all_nonstd	Y	
+p_basic	A	0.0
+p_basic	C	0.0
+p_basic	D	0.0
+p_basic	E	0.0
+p_basic	F	0.0
+p_basic	G	0.0
+p_basic	H	0.6
+p_basic	I	0.0
+p_basic	K	0.4
+p_basic	L	0.0
+p_basic	M	0.0
+p_basic	N	0.0
+p_basic	P	0.0
+p_basic	Q	0.0
+p_basic	R	0.0
+p_basic	S	0.0
+p_basic	T	0.0
+p_basic	V	0.0
+p_basic	W	0.0
+p_basic	Y	0.0
+p_empty	A	
+p_empty	C	
+p_empty	D	
+p_empty	E	
+p_empty	F	
+p_empty	G	
+p_empty	H	
+p_empty	I	
+p_empty	K	
+p_empty	L	
+p_empty	M	
+p_empty	N	
+p_empty	P	
+p_empty	Q	
+p_empty	R	
+p_empty	S	
+p_empty	T	
+p_empty	V	
+p_empty	W	
+p_empty	Y	
+p_no_aromatic	A	1.0
+p_no_aromatic	C	0.0
+p_no_aromatic	D	0.0
+p_no_aromatic	E	0.0
+p_no_aromatic	F	0.0
+p_no_aromatic	G	0.0
+p_no_aromatic	H	0.0
+p_no_aromatic	I	0.0
+p_no_aromatic	K	0.0
+p_no_aromatic	L	0.0
+p_no_aromatic	M	0.0
+p_no_aromatic	N	0.0
+p_no_aromatic	P	0.0
+p_no_aromatic	Q	0.0
+p_no_aromatic	R	0.0
+p_no_aromatic	S	0.0
+p_no_aromatic	T	0.0
+p_no_aromatic	V	0.0
+p_no_aromatic	W	0.0
+p_no_aromatic	Y	0.0
+p_nonstd	A	0.1111111111111111
+p_nonstd	C	0.1111111111111111
+p_nonstd	D	0.1111111111111111
+p_nonstd	E	0.1111111111111111
+p_nonstd	F	0.1111111111111111
+p_nonstd	G	0.1111111111111111
+p_nonstd	H	0.1111111111111111
+p_nonstd	I	0.1111111111111111
+p_nonstd	K	0.1111111111111111
+p_nonstd	L	0.0
+p_nonstd	M	0.0
+p_nonstd	N	0.0
+p_nonstd	P	0.0
+p_nonstd	Q	0.0
+p_nonstd	R	0.0
+p_nonstd	S	0.0
+p_nonstd	T	0.0
+p_nonstd	V	0.0
+p_nonstd	W	0.0
+p_nonstd	Y	0.0
+p_paired_cys	A	0.0
+p_paired_cys	C	0.2222222222222222
+p_paired_cys	D	0.0
+p_paired_cys	E	0.0
+p_paired_cys	F	0.0
+p_paired_cys	G	0.1111111111111111
+p_paired_cys	H	0.0
+p_paired_cys	I	0.1111111111111111
+p_paired_cys	K	0.0
+p_paired_cys	L	0.1111111111111111
+p_paired_cys	M	0.0
+p_paired_cys	N	0.1111111111111111
+p_paired_cys	P	0.1111111111111111
+p_paired_cys	Q	0.1111111111111111
+p_paired_cys	R	0.0
+p_paired_cys	S	0.0
+p_paired_cys	T	0.0
+p_paired_cys	V	0.0
+p_paired_cys	W	0.0
+p_paired_cys	Y	0.1111111111111111
+p_short	A	0.0
+p_short	C	0.0
+p_short	D	0.0
+p_short	E	0.0
+p_short	F	0.25
+p_short	G	0.125
+p_short	H	0.0
+p_short	I	0.0
+p_short	K	0.0
+p_short	L	0.0
+p_short	M	0.0
+p_short	N	0.0
+p_short	P	0.375
+p_short	Q	0.0
+p_short	R	0.125
+p_short	S	0.125
+p_short	T	0.0
+p_short	V	0.0
+p_short	W	0.0
+p_short	Y	0.0
+p_stop	A	
+p_stop	C	
+p_stop	D	
+p_stop	E	
+p_stop	F	
+p_stop	G	
+p_stop	H	
+p_stop	I	
+p_stop	K	
+p_stop	L	
+p_stop	M	
+p_stop	N	
+p_stop	P	
+p_stop	Q	
+p_stop	R	
+p_stop	S	
+p_stop	T	
+p_stop	V	
+p_stop	W	
+p_stop	Y	
+p_valid	A	0.1
+p_valid	C	0.1
+p_valid	D	0.1
+p_valid	E	0.1
+p_valid	F	0.1
+p_valid	G	0.1
+p_valid	H	0.1
+p_valid	I	0.1
+p_valid	K	0.1
+p_valid	L	0.1
+p_valid	M	0.0
+p_valid	N	0.0
+p_valid	P	0.0
+p_valid	Q	0.0
+p_valid	R	0.0
+p_valid	S	0.0
+p_valid	T	0.0
+p_valid	V	0.0
+p_valid	W	0.0
+p_valid	Y	0.0
