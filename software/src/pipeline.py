@@ -186,7 +186,7 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
     NaN -> null is applied to every emitted float column (and the AA-fraction
     `value`) so NA rows render as empty cells, byte-matching the scalar path.
     """
-    keys = reads["entity_key"].to_list()
+    key_series = reads["entity_key"].cast(pl.Utf8)
     seqs = reads["sequence"].to_list()
     n = len(seqs)
 
@@ -208,15 +208,17 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
     }
     properties = pl.DataFrame(
         {
-            "entity_key": pl.Series(values=keys, dtype=pl.Utf8),
+            "entity_key": key_series,
             **{c: _na_to_null(prop_arrays[c]) for c in PEPTIDE_PROPERTY_COLUMNS},
         }
     )
 
     # AA-fraction long frame from the (N, 20) mole-fraction matrix: 20 rows per
     # entity (one per STANDARD_AAS), value NaN -> null for invalid entities so
-    # the 2-axis PColumn keeps a uniform shape across entities.
+    # the 2-axis PColumn keeps a uniform shape across entities. The long-format
+    # entity axis needs Python-level repetition, so materialize keys here.
     fractions = vec.aa_fractions(sub)  # (N, 20), NaN for invalid rows
+    keys = key_series.to_list()
     aa_entity = [k for k in keys for _ in STANDARD_AAS]
     aa_amino = list(STANDARD_AAS) * n
     aa_value = fractions.reshape(-1)  # row-major: entity 0's 20 AAs, then entity 1's, ...
@@ -379,7 +381,7 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
     if plan.get("hasFv"):
         log.info("Computing Fv properties (paired VH+VL)")
 
-    series: dict[str, pl.Series] = {"entity_key": pl.Series(values=reads["entity_key"].to_list(), dtype=pl.Utf8)}
+    series: dict[str, pl.Series] = {"entity_key": reads["entity_key"].cast(pl.Utf8)}
 
     # CDR3 per chain — IPC2_PEPTIDE, Cys included. Empty cell -> NA for this
     # clone (build_counts marks it invalid -> the funcs emit NaN -> null).
@@ -395,14 +397,19 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
 
     # Full chain — reconstruct then compute. IPC2_PROTEIN, Cys excluded. NA per
     # clone where any region is missing (reconstruction None -> invalid row).
-    # Cache the per-chain substrates for Fv reuse below.
+    # Cache the per-chain substrates for Fv reuse below. Each chain is cleaned
+    # ONCE: the shared `_Cleaned` feeds both the count substrate and the
+    # instability index, so the full chains are not cleaned twice (the clean's
+    # flat AA buffer is the dominant full-chain transient). The reconstructed
+    # `seqs` list and the `_Cleaned` are dropped at the end of each iteration —
+    # Fv reuses only the substrates (chain_subs), never the raw sequences.
     chain_subs: dict[str, vec.Substrate] = {}
-    chain_seqs: dict[str, list[str | None]] = {}
     for ch in full_chains:
         seqs = _reconstruct_chain_column(reads, ch)
-        sub = vec.build_counts(seqs)
+        cleaned = vec._clean_vectorized(seqs)
+        del seqs  # only the cleaned form is needed past this point
+        sub = vec.counts_from_cleaned(cleaned)
         chain_subs[ch] = sub
-        chain_seqs[ch] = seqs
         eox, ered = vec.extinction(sub)
         full_arrays = {
             "charge": vec.charge_at_ph(sub, PH, IPC2_PROTEIN, include_cys=False),
@@ -411,7 +418,7 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
             "mw": vec.molecular_weight(sub),
             "eox": eox,
             "ered": ered,
-            "instability": vec.instability_index(seqs),
+            "instability": vec.instability_from_cleaned(cleaned),
             "aliphatic": vec.aliphatic_index(sub),
             "aromaticity": vec.aromaticity(sub),
         }
@@ -441,6 +448,12 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
         }
         for p in FV_PROPS:
             series[f"{p}_Fv"] = _na_to_null(fv_arrays[p])
+        del eox_vh, ered_vh, eox_vl, ered_vl, sub_vh, sub_vl, fv_arrays
+
+    # The full-chain substrates (each an (N, 20) count matrix + length + valid)
+    # are the last large live arrays besides the emitted Series. Nothing past
+    # this point reads them, so drop them before assembling the output frame.
+    chain_subs.clear()
 
     out_cols = _planned_output_columns(plan)
     properties = pl.DataFrame({"entity_key": series["entity_key"], **{c: series[c] for c in out_cols}})

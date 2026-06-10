@@ -121,10 +121,10 @@ class _Cleaned:
     as one flat AA-index buffer with row boundaries, so per-char Python loops
     are replaced by a single numpy gather over the joined bytes.
 
-    * `cand_rows`   — (C,) original row index of each candidate (into the full N).
+    * `cand_rows`   — (C,) int32 original row index of each candidate (into N).
     * `aa_flat`     — (T,) int8 AA index per *standard* residue, concatenated in
                       candidate then residue order (non-standard chars dropped).
-    * `row_of_res`  — (T,) candidate-local row id (0..C-1) for each entry of
+    * `row_of_res`  — (T,) int32 candidate-local row id (0..C-1) for each entry of
                       aa_flat — i.e. which candidate that residue belongs to.
     * `lengths`     — (C,) standard-residue count per candidate (== len of its
                       slice of aa_flat).
@@ -144,13 +144,15 @@ def _clean_vectorized(seqs: list[str | None]) -> _Cleaned:
     `is_invalid_sequence` short-circuit). Each candidate is latin-1 encoded
     (one byte per char), the bytes are concatenated into a single buffer,
     `np.frombuffer`'d once, and mapped through `_BYTE_TO_AA`; standard residues
-    keep their AA index, non-standard chars (mapped to -1) are dropped. A
-    per-char candidate-local row id is built with `np.repeat`, then masked to
-    the kept residues — so `aa_flat[k]` belongs to candidate `row_of_res[k]`.
+    keep their AA index, non-standard chars (mapped to -1) are dropped. The
+    candidate-local row id of each *kept* residue is built by counting kept
+    residues per candidate (segment-sum of the keep mask) and repeating the
+    candidate ids by those counts — so `aa_flat[k]` belongs to candidate
+    `row_of_res[k]` without ever materializing a per-CHAR row-id array.
     """
     n = len(seqs)
     cand_rows: list[int] = []
-    buf = bytearray()
+    chunks: list[bytes] = []  # per-candidate latin-1 bytes, joined once below
     char_lengths: list[int] = []  # per-candidate char count (== byte count)
     for i, s in enumerate(seqs):
         if s is None or s == "" or "*" in s:
@@ -158,11 +160,21 @@ def _clean_vectorized(seqs: list[str | None]) -> _Cleaned:
         b = s.encode("latin-1", "replace")
         cand_rows.append(i)
         char_lengths.append(len(b))
-        buf += b
+        chunks.append(b)
+    # Single exact-sized join instead of an incremental `bytearray +=` loop:
+    # the per-append reallocation/overallocation of a many-hundred-MB buffer was
+    # a large RSS transient (and allocator churn over the millions of per-row
+    # encode() chunks). `b"".join` allocates the final buffer once.
+    buf = b"".join(chunks)
+    del chunks
 
-    cand_rows_arr = np.asarray(cand_rows, dtype=np.intp)
+    # int32 indices throughout: cand_rows are row ids into the full N and
+    # row_of_res are candidate-local row ids (0..C-1) — both are < 2**31 for any
+    # real dataset (<= ~2.1B clones), so int32 is safe and halves these
+    # per-residue arrays vs the numpy default int64/intp.
+    cand_rows_arr = np.asarray(cand_rows, dtype=np.int32)
     if not buf:
-        empty_i = np.empty(0, dtype=np.intp)
+        empty_i = np.empty(0, dtype=np.int32)
         empty_aa = np.empty(0, dtype=np.int8)
         return _Cleaned(
             n=n,
@@ -174,14 +186,27 @@ def _clean_vectorized(seqs: list[str | None]) -> _Cleaned:
 
     char_len_arr = np.asarray(char_lengths, dtype=np.intp)
     # AA index per character of the joined buffer; non-standard chars -> -1.
-    aa_per_char = _BYTE_TO_AA[np.frombuffer(bytes(buf), dtype=np.uint8)]
-    # Candidate-local row id per character (0..C-1), then drop non-standard.
-    row_per_char = np.repeat(np.arange(len(char_len_arr), dtype=np.intp), char_len_arr)
+    # frombuffer is a zero-copy read-only view over `buf`; the gather copies the
+    # mapped indices into a fresh array, so `buf` can be dropped right after.
+    aa_per_char = _BYTE_TO_AA[np.frombuffer(buf, dtype=np.uint8)]
+    del buf
     keep = aa_per_char >= 0
     aa_flat = aa_per_char[keep]
-    row_of_res = row_per_char[keep]
-    # Standard-residue count per candidate (folds the kept mask back per row).
-    lengths = np.bincount(row_of_res, minlength=len(char_len_arr)).astype(np.int64)
+    del aa_per_char
+    # Kept-residue count per candidate: segment-sum the keep mask over each
+    # candidate's char slice. Every candidate has >=1 char (empty strings are
+    # filtered above), so the start offsets have no zero-length segments and
+    # reduceat is well defined. This is `lengths` directly and avoids both the
+    # per-char row-id array (the dominant transient) and a separate bincount.
+    starts = np.empty(len(char_len_arr), dtype=np.intp)
+    starts[0] = 0
+    np.cumsum(char_len_arr[:-1], out=starts[1:])
+    lengths = np.add.reduceat(keep, starts).astype(np.int64)
+    del keep
+    # Candidate-local row id per KEPT residue: repeat each candidate id by its
+    # kept count — produces the (T_kept,) survivor directly, no masking.
+    # int32: candidate count C < 2**31 for any real dataset (see above).
+    row_of_res = np.repeat(np.arange(len(char_len_arr), dtype=np.int32), lengths)
     return _Cleaned(
         n=n,
         cand_rows=cand_rows_arr,
@@ -191,17 +216,19 @@ def _clean_vectorized(seqs: list[str | None]) -> _Cleaned:
     )
 
 
-def build_counts(seqs: list[str | None]) -> Substrate:
-    """Per-residue (N, 20) count matrix + effective length + validity, matching
-    properties.py's scalar cleaning exactly.
+def counts_from_cleaned(cl: _Cleaned) -> Substrate:
+    """Build the (N, 20) count substrate from an already-cleaned column.
 
-    Fully vectorized: candidates are cleaned to one flat AA-index buffer
-    (`_clean_vectorized`), counts are scattered with a single `np.add.at` over
-    the (candidate-local-row, AA-index) pairs, then mapped back to the full N
-    rows. A candidate is valid iff at least one standard residue remained
+    Counts are scattered with a single `np.add.at` over the
+    (candidate-local-row, AA-index) pairs, then mapped back to the full N rows.
+    A candidate is valid iff at least one standard residue remained
     (lengths > 0) — reproducing the scalar `clean_sequence(...) or None` rule.
+
+    Splitting the clean (`_clean_vectorized`) from this derivation lets a caller
+    clean a sequence-set ONCE and feed the same `_Cleaned` to both
+    `counts_from_cleaned` and `instability_from_cleaned`, avoiding a duplicate
+    full-chain clean (a large transient on the full-chain path).
     """
-    cl = _clean_vectorized(seqs)
     n = cl.n
     counts = np.zeros((n, 20), dtype=np.int64)
     valid = np.zeros(n, dtype=bool)
@@ -214,6 +241,18 @@ def build_counts(seqs: list[str | None]) -> Substrate:
         valid[cl.cand_rows] = cl.lengths > 0
     length = counts.sum(axis=1)
     return Substrate(counts=counts, length=length, valid=valid)
+
+
+def build_counts(seqs: list[str | None]) -> Substrate:
+    """Per-residue (N, 20) count matrix + effective length + validity, matching
+    properties.py's scalar cleaning exactly.
+
+    Fully vectorized: candidates are cleaned to one flat AA-index buffer
+    (`_clean_vectorized`), then `counts_from_cleaned` scatters the counts. Public
+    entry point for callers that only need counts; the pipeline's full-chain path
+    instead cleans once and shares the `_Cleaned` with `instability_from_cleaned`.
+    """
+    return counts_from_cleaned(_clean_vectorized(seqs))
 
 
 # --------------------------------------------------------------------------- #
@@ -478,17 +517,18 @@ def fv_isoelectric_point(
 # --------------------------------------------------------------------------- #
 
 
-def instability_index(seqs: list[str | None]) -> np.ndarray:
-    """Guruprasad instability index per sequence, float64, NaN where the scalar
-    oracle returns None.
+def instability_from_cleaned(cl: _Cleaned) -> np.ndarray:
+    """Guruprasad instability index from an already-cleaned column, float64, NaN
+    where the scalar oracle returns None.
 
+    Splitting the clean from this derivation lets the full-chain path reuse the
+    same `_Cleaned` for both counts and instability (see `counts_from_cleaned`).
     A row is NaN when the sequence is invalid (None / empty / contains a stop
     codon `*` / nothing standard remains after cleaning) OR when the cleaned
     (standard-AA-only) length is below `_INSTABILITY_MIN_LENGTH` (= 10). Order is
     preserved: each row's value is a pure function of that row's sequence, with
     no dict/set iteration leaking into the output.
     """
-    cl = _clean_vectorized(seqs)
     out = np.full(cl.n, np.nan, dtype=np.float64)
     n_cand = len(cl.cand_rows)
     if n_cand == 0:
@@ -498,7 +538,11 @@ def instability_index(seqs: list[str | None]) -> np.ndarray:
     # to the SAME candidate (row boundaries in the joined buffer must not leak a
     # pair across two sequences). Mask on row_of_res, gather DIWV weights, then
     # sum per candidate with np.add.at — order-preserving, no per-row Python.
-    aa = cl.aa_flat.astype(np.intp)
+    # aa_flat stays int8 (no intp promotion): _DIWV fancy-indexing accepts an
+    # int8 index, and avoiding the int64 copy saves ~8x its size on full chains
+    # (the int64 promotion was a multi-hundred-MB transient). The gathered DIWV
+    # weights and the per-candidate sum are unchanged, so the result is identical.
+    aa = cl.aa_flat
     rows = cl.row_of_res
     if aa.size >= 2:
         same = rows[:-1] == rows[1:]
@@ -517,3 +561,12 @@ def instability_index(seqs: list[str | None]) -> np.ndarray:
         rows_keep = cl.cand_rows[keep]
         out[rows_keep] = (10.0 / lengths[keep]) * score[keep]
     return out
+
+
+def instability_index(seqs: list[str | None]) -> np.ndarray:
+    """Public entry point: clean then derive the instability index. Callers that
+    also need the count substrate should clean once with `_clean_vectorized` and
+    feed the shared `_Cleaned` to both `counts_from_cleaned` and
+    `instability_from_cleaned` instead of calling this and `build_counts`.
+    """
+    return instability_from_cleaned(_clean_vectorized(seqs))
