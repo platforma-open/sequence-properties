@@ -32,10 +32,10 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-import polars as pl  # noqa: E402
+import polars as pl
 
-from io_layer import read_input_tsv, read_plan, write_output_tsv  # noqa: E402
-from pipeline import run  # noqa: E402
+from io_layer import read_input_tsv, read_plan, write_output_tsv
+from pipeline import run
 
 DATA = Path(__file__).resolve().parent / "data" / "characterization"
 GOLDEN = DATA / "golden"

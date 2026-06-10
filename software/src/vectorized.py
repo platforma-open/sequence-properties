@@ -92,6 +92,21 @@ def _safe_div(num: np.ndarray, length: np.ndarray, valid: np.ndarray) -> np.ndar
     return out
 
 
+def _matvec(counts: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """counts (N,20) · weights (20,) -> (N,).
+
+    Wrapped in np.errstate because numpy's matmul SIMD kernel raises spurious
+    overflow / invalid / divide-by-zero RuntimeWarnings on this matvec shape
+    even though the result is exact: the flags are read from FP status on
+    masked tail SIMD lanes, not from the data. The output is bit-identical to
+    the unwrapped `counts @ weights` (verified, maxdiff 0.0) and parity-tested
+    to 1e-16; multiply-sum / einsum silence the warning too but change the
+    summation order (and the emitted bytes), so they are not used here.
+    """
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        return counts @ weights
+
+
 @dataclass(frozen=True)
 class Substrate:
     counts: np.ndarray  # (N, 20) int64, STANDARD_AAS order
@@ -213,7 +228,7 @@ def gravy(sub: Substrate) -> np.ndarray:
 
     Mirrors ProteinAnalysis.gravy(), which returns total_gravy / length.
     """
-    return _safe_div(sub.counts @ _KD, sub.length, sub.valid)
+    return _safe_div(_matvec(sub.counts, _KD), sub.length, sub.valid)
 
 
 def molecular_weight(sub: Substrate) -> np.ndarray:
@@ -221,13 +236,13 @@ def molecular_weight(sub: Substrate) -> np.ndarray:
 
     Mirrors Bio.SeqUtils.molecular_weight(seq, "protein"); water = 18.0153.
     """
-    mw = sub.counts @ _MASS - (sub.length - 1) * _WATER
+    mw = _matvec(sub.counts, _MASS) - (sub.length - 1) * _WATER
     return _mask(mw, sub.valid & (sub.length > 0))
 
 
 def aromaticity(sub: Substrate) -> np.ndarray:
     """Aromatic mole fraction (F + W + Y) / length."""
-    return _safe_div(sub.counts @ _AROMATIC, sub.length, sub.valid)
+    return _safe_div(_matvec(sub.counts, _AROMATIC), sub.length, sub.valid)
 
 
 def aliphatic_index(sub: Substrate) -> np.ndarray:
@@ -249,7 +264,7 @@ def extinction(sub: Substrate) -> tuple[np.ndarray, np.ndarray]:
     Matches the scalar extinction_coefficients() column order (oxidized first);
     BioPython's molar_extinction_coefficient() returns (reduced, oxidized).
     """
-    red = sub.counts @ _EXT_RED
+    red = _matvec(sub.counts, _EXT_RED)
     ox = red + (sub.counts[:, _C_INDEX] // 2) * 125.0
     return _mask(ox, sub.valid), _mask(red, sub.valid)
 
