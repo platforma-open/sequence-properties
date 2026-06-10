@@ -9,14 +9,23 @@ Invoked from the Tengo workflow as:
 
 from __future__ import annotations
 
-import argparse
-import json
-import logging
-import sys
-from pathlib import Path
+import os
 
-from io_layer import read_input_tsv, read_plan, write_output_tsv
-from pipeline import run
+# Pin the polars thread pool to 1 BEFORE polars (or anything importing it,
+# including `pipeline`) is loaded — POLARS_MAX_THREADS is read once at import.
+# The block reserves cpu(1), and single-threaded execution keeps output
+# byte-stable (no thread-count-dependent reduction order). setdefault so an
+# explicit override from the environment still wins.
+os.environ.setdefault("POLARS_MAX_THREADS", "1")
+
+import argparse  # noqa: E402
+import json  # noqa: E402
+import logging  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from io_layer import read_input_tsv, read_plan, write_output_tsv  # noqa: E402
+from pipeline import run  # noqa: E402
 
 
 def _configure_logging() -> None:

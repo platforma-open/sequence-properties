@@ -241,6 +241,62 @@ def charge_shift(
     return _mask(hi - lo, sub.valid)
 
 
+def _bisect_charge_zero_vec(
+    charge_fn,
+    valid: np.ndarray,
+    lo: float = 0.0,
+    hi: float = 14.0,
+    tol: float = 1e-3,
+) -> np.ndarray:
+    """Lockstep fixed-iteration bisection of a row-wise charge function for the
+    pH where net charge crosses zero, bit-identical to the scalar
+    `properties._bisect_charge_zero(charge_fn, lo, hi, tol)`.
+
+    `charge_fn(ph)` must return a finite-for-all-rows float64 array of net charge
+    at the scalar `ph` (e.g. `_charge_raw` for one substrate, or a per-chain SUM
+    of `_charge_raw` for the Fv path). `valid` is the per-row validity mask.
+
+    Mirrors the scalar bisection exactly:
+
+    * SAME bracket [lo, hi] and tol -> the bracket width starts at (hi - lo) and
+      halves every iteration regardless of data, so the loop runs the SAME
+      data-independent `ceil(log2((hi - lo) / tol))` iterations (== 14 for
+      [0, 14], tol 1e-3) for every row;
+    * SAME branch test `(f_mid > 0) == (f_lo > 0)` to move `lo` up to `mid`,
+      else move `hi` down to `mid`.
+
+    The only scalar behaviour not reproduced is the `if f_mid == 0.0: return mid`
+    early-out — a midpoint landing on EXACT zero net charge — which is
+    astronomically rare and, when it happens, the lockstep loop still converges
+    to the same value within `tol`.
+
+    Rows with no zero crossing in [lo, hi] (both endpoints strictly same-sign)
+    or invalid rows -> NaN, matching the scalar `None`. Returns float64.
+    """
+    f_lo = charge_fn(lo)
+    f_hi = charge_fn(hi)
+    # No zero-crossing when both endpoints share a strict sign (matches scalar).
+    crossing = ~(((f_lo > 0) & (f_hi > 0)) | ((f_lo < 0) & (f_hi < 0)))
+
+    n = len(valid)
+    lo_a = np.full(n, lo, dtype=np.float64)
+    hi_a = np.full(n, hi, dtype=np.float64)
+    f_lo_a = np.asarray(f_lo, dtype=np.float64).copy()
+
+    iters = math.ceil(math.log2((hi - lo) / tol))
+    for _ in range(iters):
+        mid = 0.5 * (lo_a + hi_a)
+        f_mid = charge_fn(mid)
+        go_lo = (f_mid > 0) == (f_lo_a > 0)  # same branch test as scalar
+        lo_a = np.where(go_lo, mid, lo_a)
+        f_lo_a = np.where(go_lo, f_mid, f_lo_a)
+        hi_a = np.where(go_lo, hi_a, mid)
+
+    pi = 0.5 * (lo_a + hi_a)
+    pi[~(crossing & valid)] = np.nan
+    return pi
+
+
 def isoelectric_point(
     sub: Substrate,
     pka_set: PKaSet,
@@ -252,48 +308,48 @@ def isoelectric_point(
     """Vectorized pI: lockstep fixed-iteration bisection of `_charge_raw` over
     all rows, bit-identical to the scalar `properties.isoelectric_point`.
 
-    Mirrors `properties._bisect_charge_zero(charge_fn, lo, hi, tol)` exactly:
-
-    * SAME bracket [lo, hi] and tol -> the bracket width starts at (hi - lo) and
-      halves every iteration regardless of data, so the loop runs the SAME
-      data-independent `ceil(log2((hi - lo) / tol))` iterations (== 14 for
-      [0, 14], tol 1e-3) for every row;
-    * SAME branch test `(f_mid > 0) == (f_lo > 0)` to move `lo` up to `mid`,
-      else move `hi` down to `mid`;
-    * `_charge_raw` is bit-identical to the scalar charge (charge parity = 0.0).
-
-    The only scalar behaviour not reproduced is the `if f_mid == 0.0: return mid`
-    early-out — a midpoint landing on EXACT zero net charge — which is
-    astronomically rare and, when it happens, the lockstep loop still converges
-    to the same value within `tol`.
-
-    Rows with no zero crossing in [lo, hi] (both endpoints strictly same-sign)
-    or invalid rows -> NaN, matching the scalar `None`. Returns float64.
+    Delegates the bisection to `_bisect_charge_zero_vec`; `_charge_raw` is
+    bit-identical to the scalar charge (charge parity = 0.0), so the pI is
+    bit-identical to the scalar pI for every valid sequence.
     """
-    f = lambda ph: _charge_raw(sub, ph, pka_set, include_cys)  # noqa: E731
+    return _bisect_charge_zero_vec(
+        lambda ph: _charge_raw(sub, ph, pka_set, include_cys),
+        sub.valid,
+        lo=lo,
+        hi=hi,
+        tol=tol,
+    )
 
-    f_lo = f(lo)
-    f_hi = f(hi)
-    # No zero-crossing when both endpoints share a strict sign (matches scalar).
-    crossing = ~(((f_lo > 0) & (f_hi > 0)) | ((f_lo < 0) & (f_hi < 0)))
 
-    n = sub.counts.shape[0]
-    lo_a = np.full(n, lo, dtype=np.float64)
-    hi_a = np.full(n, hi, dtype=np.float64)
-    f_lo_a = np.asarray(f_lo, dtype=np.float64).copy()
+def fv_isoelectric_point(
+    sub_vh: Substrate,
+    sub_vl: Substrate,
+    pka_set: PKaSet,
+    include_cys: bool = False,
+    lo: float = 0.0,
+    hi: float = 14.0,
+    tol: float = 1e-3,
+) -> np.ndarray:
+    """Vectorized Fv pI: pH where charge(VH, pH) + charge(VL, pH) = 0.
 
-    iters = math.ceil(math.log2((hi - lo) / tol))
-    for _ in range(iters):
-        mid = 0.5 * (lo_a + hi_a)
-        f_mid = f(mid)
-        go_lo = (f_mid > 0) == (f_lo_a > 0)  # same branch test as scalar
-        lo_a = np.where(go_lo, mid, lo_a)
-        f_lo_a = np.where(go_lo, f_mid, f_lo_a)
-        hi_a = np.where(go_lo, hi_a, mid)
+    Mirrors the scalar `properties.fv_isoelectric_point` /
+    `_compute_fv_row_from_ctx`'s pi: bisect the per-chain charge SUM, not the pI
+    of a concatenated VH+VL string. The bisected function is
+    `f(ph) = _charge_raw(vh, ph) + _charge_raw(vl, ph)` — both finite for all
+    rows — and the row is valid only where BOTH chains are valid (matches the
+    scalar's "None if either chain invalid").
 
-    pi = 0.5 * (lo_a + hi_a)
-    pi[~(crossing & sub.valid)] = np.nan
-    return pi
+    `sub_vh` and `sub_vl` must be aligned row-for-row (same N, same clone order).
+    Returns float64, NaN where either chain is invalid or no zero crossing.
+    """
+    valid = sub_vh.valid & sub_vl.valid
+    return _bisect_charge_zero_vec(
+        lambda ph: _charge_raw(sub_vh, ph, pka_set, include_cys) + _charge_raw(sub_vl, ph, pka_set, include_cys),
+        valid,
+        lo=lo,
+        hi=hi,
+        tol=tol,
+    )
 
 
 # --------------------------------------------------------------------------- #
