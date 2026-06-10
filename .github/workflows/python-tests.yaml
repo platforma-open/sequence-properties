@@ -37,7 +37,10 @@ jobs:
         run: uv run ruff format --check
 
       - name: Run pytest
-        run: uv run pytest
+        # Exclude @slow (the perf benchmark) from the gate — it asserts a
+        # wall-clock budget that flakes on shared runners. Run it explicitly
+        # with `uv run pytest -m slow`.
+        run: uv run pytest -m "not slow"
 
   requirements-sync:
     # src/requirements.txt is generated from pyproject.toml (the single source of

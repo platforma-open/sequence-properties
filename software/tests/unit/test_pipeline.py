@@ -333,6 +333,52 @@ class TestSingleCellChainDropout:
             assert rows["c2"][f"{p}_Fv"] is None
 
 
+class TestFvValidityGating:
+    """Fv columns require BOTH chains valid (AND-gating, not OR). A chain that is
+    present and non-empty but INVALID — a stop codon in one region — must NA
+    every Fv column even though the other chain is fine. Distinct from the
+    sc-dropout case (chain entirely empty -> reconstruction None): here the chain
+    reconstructs to a non-empty string that `build_counts` marks invalid.
+    """
+
+    def test_stop_codon_in_one_chain_nas_all_fv(self):
+        # Chain A fully valid. Chain B reconstructs to a non-empty string whose
+        # CDR3 carries a stop codon -> chain B is invalid (not missing).
+        regions = {
+            "A_FR1": ["EVQLVES"],
+            "A_CDR1": ["GFTFSSY"],
+            "A_FR2": ["AMSWVRQ"],
+            "A_CDR2": ["ISGSGGS"],
+            "A_FR3": ["TYYAESVKGRFTI"],
+            "A_CDR3": ["CARDYW"],
+            "A_FR4": ["WGQGTLV"],
+            "B_FR1": ["DIQMTQS"],
+            "B_CDR1": ["QSISSY"],
+            "B_FR2": ["LNWYQQK"],
+            "B_CDR2": ["AASSLQS"],
+            "B_FR3": ["GVPSRFSGSG"],
+            "B_CDR3": ["CQ*YNS"],  # stop codon -> whole chain B invalid
+            "B_FR4": ["FGQGTKV"],
+        }
+        reads = pl.DataFrame({"entity_key": ["c1"], **regions})
+        plan = {
+            "mode": "antibody_tcr_legacy_sc",
+            "receptor": "IG",
+            "chains": ["A", "B"],
+            "fullChains": ["A", "B"],
+            "hasFv": True,
+        }
+        out = run(reads, plan)
+        row = out["properties"].row(0, named=True)
+        # Chain A full-chain props present; chain B full-chain props all NA.
+        assert row["mw_A_VDJRegion"] is not None
+        for p in FULL_CHAIN_PROPS:
+            assert row[f"{p}_B_VDJRegion"] is None
+        # Fv requires both chains valid -> every Fv column NA, even though VH is fine.
+        for p in FV_PROPS:
+            assert row[f"{p}_Fv"] is None
+
+
 class TestEmptyInput:
     """Zero-row inputs must produce well-formed outputs, not crash. The workflow
     panics earlier on missing columns, but the Python step must remain robust if
@@ -378,6 +424,33 @@ class TestEmptyInput:
         for p in CDR3_PROPS:
             assert f"{p}_A_CDR3" in cols
             assert f"{p}_B_CDR3" in cols
+        assert out["stats"] == {"medianCdr3Length": {}}
+
+    # Full-chain + Fv plan with zero rows — the path that builds (0, 20) count
+    # matrices and runs the bisection / 10.0/len instability over EMPTY arrays.
+    # The simpler zero-row cases above never reach full-chain reconstruction or
+    # the Fv sum, so this guards the empty-array bisection specifically.
+    def test_full_chain_fv_mode_zero_rows(self):
+        regions = ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")
+        region_cols = {f"{ch}_{feat}": pl.Utf8 for ch in "AB" for feat in regions}
+        reads = pl.DataFrame(schema={"entity_key": pl.Utf8, **region_cols})
+        plan = {
+            "mode": "antibody_tcr_legacy_bulk",
+            "receptor": "IG",
+            "chains": ["A", "B"],
+            "fullChains": ["A", "B"],
+            "hasFv": True,
+        }
+        out = run(reads, plan)
+        assert out["properties"].height == 0
+        cols = set(out["properties"].columns)
+        for ch in "AB":
+            for p in CDR3_PROPS:
+                assert f"{p}_{ch}_CDR3" in cols
+            for p in FULL_CHAIN_PROPS:
+                assert f"{p}_{ch}_VDJRegion" in cols
+        for p in FV_PROPS:
+            assert f"{p}_Fv" in cols
         assert out["stats"] == {"medianCdr3Length": {}}
 
 

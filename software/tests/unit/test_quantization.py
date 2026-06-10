@@ -24,8 +24,7 @@ import polars as pl
 import pytest
 
 from pipeline import (
-    CID_QUANTIZE_DECIMALS,
-    CID_QUANTIZE_PREFIXES,
+    _decimals_for,
     _quantize_for_cid,
     run,
 )
@@ -98,7 +97,7 @@ class TestQuantizeHelper:
             "pi_Fv",
         ):
             v = out[col][0]
-            assert v == pytest.approx(round(v, CID_QUANTIZE_DECIMALS), abs=0)
+            assert v == pytest.approx(round(v, _decimals_for(col)), abs=0)
         # gravy / mw round to their per-column decimals (5 dp / 4 dp):
         assert out["gravy_A_VDJRegion"][0] == round(-0.11111156, 5)
         assert out["mw_A_VDJRegion"][0] == round(6050.730289, 4)
@@ -110,10 +109,27 @@ class TestQuantizeHelper:
         out = _quantize_for_cid(df)
         assert out["notaproperty_x"][0] == 0.123456789
 
-    # Sanity — module-level constants match what the docstring promises.
-    def test_constants_track_documented_values(self):
-        assert CID_QUANTIZE_DECIMALS == 3
-        assert CID_QUANTIZE_PREFIXES == ("charge_", "chargeShift_", "pi_")
+    # Sanity — the per-prefix decimals table (via `_decimals_for`) maps each
+    # property family to the decimals the docstring promises. This is the single
+    # source of truth the pipeline rounds against; a column with no rule returns
+    # None (left full-precision).
+    def test_decimals_for_tracks_documented_values(self):
+        documented = {
+            "charge_peptide": 3,
+            "chargeShift_peptide": 3,
+            "pi_peptide": 3,
+            "instability_peptide": 4,
+            "mw_peptide": 4,
+            "aliphatic_peptide": 4,
+            "gravy_peptide": 5,
+            "aromaticity_peptide": 5,
+            "eox_peptide": 0,
+            "ered_peptide": 0,
+        }
+        for col, dp in documented.items():
+            assert _decimals_for(col) == dp, f"{col}: expected {dp} dp"
+        # A non-property column has no quantization rule.
+        assert _decimals_for("entity_key") is None
 
     # Signed-zero canonicalization: a `-0.0` input (FP-residual-sign drift on a
     # ~0 property) must emit as `+0.0`, so the TSV writer produces identical bytes
@@ -144,7 +160,7 @@ class TestPipelineQuantizationApplied:
         for c in ("charge_peptide", "pi_peptide"):
             v = row[c]
             assert v is not None
-            assert v == pytest.approx(round(v, CID_QUANTIZE_DECIMALS), abs=0), f"{c}={v} not at 3-decimal precision"
+            assert v == pytest.approx(round(v, _decimals_for(c)), abs=0), f"{c}={v} not at 3-decimal precision"
 
     # Antibody full-coverage output: charge_*, pi_*, including Fv, all land at
     # their 3-dp boundary. (Other families round too — covered by the helper
@@ -155,7 +171,9 @@ class TestPipelineQuantizationApplied:
         out = run(antibody_full_one_clone, antibody_full_plan)
         row = out["properties"].row(0, named=True)
 
-        rounded_cols = [c for c in row if any(c.startswith(p) for p in CID_QUANTIZE_PREFIXES)]
+        # The 3-dp family (charge / chargeShift / pi) — every such column lands
+        # exactly on its boundary.
+        rounded_cols = [c for c in row if _decimals_for(c) == 3]
         # Sanity: at least one charge_ and one pi_ column present.
         assert any(c.startswith("charge_") for c in rounded_cols)
         assert any(c.startswith("pi_") for c in rounded_cols)
@@ -163,7 +181,7 @@ class TestPipelineQuantizationApplied:
             v = row[c]
             if v is None:
                 continue
-            assert v == pytest.approx(round(v, CID_QUANTIZE_DECIMALS), abs=0), f"{c}={v} not at 3-decimal precision"
+            assert v == pytest.approx(round(v, _decimals_for(c)), abs=0), f"{c}={v} not at 3-decimal precision"
 
 
 class TestQuantizationDoesNotPropagateInternally:
@@ -182,7 +200,9 @@ class TestQuantizationDoesNotPropagateInternally:
         vh = "EVQLVESGFTFSSYAMSWVRQISGSGGSTYYAESVKGRFTICARDYWWGQGTLV"
         pi = isoelectric_point(vh, IPC2_PROTEIN, include_cys=False)
         assert pi == pytest.approx(6.006653, abs=1e-6)
-        assert pi != round(pi, CID_QUANTIZE_DECIMALS)
+        # The boundary rounds pi to its 3-dp family; the internal function must
+        # keep more digits than that.
+        assert pi != round(pi, _decimals_for("pi_peptide"))
 
 
 class TestExtendedQuantizationBoundary:
