@@ -38,29 +38,64 @@ PH = 7.0  # All charge values computed at pH 7 (spec default).
 # CID quantization
 # ---------------------------------------------------------------------------
 #
-# Only `charge_*` and `pi_*` outputs depend on a transcendental — `10**x` via
-# libm — and only those carry ULP-level variance when the underlying FP path
-# changes (libm patch, numpy SIMD reduction strategy, Python → numpy code
-# substitution). Every other property is closed-form integer / constant
-# arithmetic and bit-exact under IEEE-754 on a single machine.
+# Determinism contract: "quantized-equal". Every emitted float column is
+# rounded at the output boundary to one digit below its display precision (and
+# at least 4 dp). This serves two ends: users see no change (rounding stays
+# below the `.Nf` display format), and the upcoming BioPython → numpy code
+# substitution's floating-point drift is absorbed, so the workflow's content-
+# addressable id stays byte-stable across a same-machine re-run.
 #
-# Rounding to 3 decimals matches the isoelectric_point bisection tolerance of
-# 1e-3 — the value's true precision is already 0.0005, so rounding to 0.001
-# discards only ULP noise without losing real information. Display format
-# (.2f) is even coarser, so users see no change.
+# `charge_*`, `chargeShift_*`, and `pi_*` are the only outputs that depend on a
+# transcendental (`10**x` via libm), so they carry true ULP-level FP variance
+# today. They round to 3 dp, matching the isoelectric_point bisection tolerance
+# of 1e-3 (the value's real precision is ~0.0005). The other families are
+# closed-form arithmetic — bit-exact under IEEE-754 on one machine now, but
+# rounded anyway so the contract holds uniformly once the math is vectorized.
+#
+# `eox_*`/`ered_*` are integer-valued; rounding to 0 dp is exact and never
+# perturbs them.
 #
 # The quantization is a *boundary* concern. Internal property functions
 # (`charge_at_ph`, `isoelectric_point`, etc.) keep full precision so golden-
 # value tests stay sharp. Only the pipeline's emitted DataFrame is rounded.
+#
+# `CID_QUANTIZE_PREFIXES` / `CID_QUANTIZE_DECIMALS` remain as documentation of
+# the charge/chargeShift/pi family's 3-dp contract (other tests assert them).
 CID_QUANTIZE_PREFIXES = ("charge_", "chargeShift_", "pi_")
 CID_QUANTIZE_DECIMALS = 3
 
+# Per-column-family rounding at the output boundary. Keys match the TSV column
+# *prefixes* the pipeline emits; the first matching prefix wins. Chosen below
+# each property's display format (columns.lib.tengo) with headroom over the
+# BioPython->numpy FP drift the upcoming vectorization introduces.
+CID_QUANTIZE_DECIMALS_BY_PREFIX: tuple[tuple[str, int], ...] = (
+    ("charge_", 3),
+    ("chargeShift_", 3),
+    ("pi_", 3),  # .2f display, unchanged
+    ("instability_", 4),  # .2f display
+    ("mw_", 4),
+    ("aliphatic_", 4),  # .1f display
+    ("gravy_", 5),
+    ("aromaticity_", 5),  # .3f display
+    ("eox_", 0),
+    ("ered_", 0),  # .0f, integer-valued
+)
+
+
+def _decimals_for(col: str) -> int | None:
+    for prefix, dp in CID_QUANTIZE_DECIMALS_BY_PREFIX:
+        if col.startswith(prefix):
+            return dp
+    return None
+
 
 def _quantize_for_cid(df: pl.DataFrame) -> pl.DataFrame:
-    cols = [c for c in df.columns if any(c.startswith(p) for p in CID_QUANTIZE_PREFIXES)]
-    if not cols:
-        return df
-    return df.with_columns([pl.col(c).round(CID_QUANTIZE_DECIMALS) for c in cols])
+    exprs = []
+    for c in df.columns:
+        dp = _decimals_for(c)
+        if dp is not None and df.schema[c] == pl.Float64:
+            exprs.append(pl.col(c).round(dp))
+    return df.with_columns(exprs) if exprs else df
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +238,11 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
         {"entity_key": aa_entity, "aminoAcid": aa_amino, "value": aa_value},
         schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64},
     )
+    # Quantize at the output boundary like the property columns. aaFraction
+    # displays as .3f; round to 5 dp (one digit below display, headroom for the
+    # upcoming vectorization's FP drift). `value` is a closed-form ratio today,
+    # so rounding only trims repeating-decimal tails — no display change.
+    aa_fraction = aa_fraction.with_columns(pl.col("value").round(5))
 
     # R9 — flag whether any *real* peptide falls below the Instability Index
     # floor. `if s` filters None / "" so the banner does not fire on empty
