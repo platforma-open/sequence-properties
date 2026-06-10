@@ -267,20 +267,6 @@ FV_PROPS = ("charge", "chargeShift", "pi", "eox", "ered", "mw")
 REQUIRED_FEATURES = ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")
 
 
-def _reconstruct_chain(row: dict[str, str], chain: str) -> str | None:
-    """Concatenate FR1+CDR1+FR2+CDR2+FR3+CDR3+FR4. Returns None if any
-    region is missing (empty string in input).
-    """
-    parts = []
-    for feat in REQUIRED_FEATURES:
-        col = f"{chain}_{feat}"
-        v = row.get(col, "")
-        if not v:
-            return None
-        parts.append(v)
-    return "".join(parts)
-
-
 def _planned_output_columns(plan: dict[str, Any]) -> list[str]:
     """Output column order — matches process.tpl.tengo's xsv import expectations.
 
@@ -336,17 +322,23 @@ def _reconstruct_chain_column(reads: pl.DataFrame, chain: str) -> list[str | Non
     """Reconstruct the full chain for every clone: FR1+CDR1+...+FR4, None if any
     region is missing (empty cell OR absent column).
 
-    Pulls each region column once, then delegates the per-clone rule to
-    `_reconstruct_chain` so the reconstruction logic has a single source of
-    truth. A region column absent from the reads is materialised as empty
-    strings, so the missing-region -> None rule fires the same way.
+    Vectorized with polars: each region is normalised so that both null and the
+    empty string map to null (the `if not v` "missing region" rule), then
+    `concat_str(ignore_nulls=False)` joins the seven regions — yielding null
+    whenever ANY region is null/empty (any-missing -> None) without a per-row
+    Python loop. A region column absent from the reads is treated as all-empty,
+    so its rows reconstruct to None, same as the per-row path.
     """
-    cols = {feat: _column_or_empty(reads, f"{chain}_{feat}") for feat in REQUIRED_FEATURES}
-    out: list[str | None] = []
-    for i in range(reads.height):
-        row = {f"{chain}_{feat}": cols[feat][i] for feat in REQUIRED_FEATURES}
-        out.append(_reconstruct_chain(row, chain))
-    return out
+    parts = []
+    for feat in REQUIRED_FEATURES:
+        col = f"{chain}_{feat}"
+        if col not in reads.columns:
+            # Absent column -> every row missing this region -> chain is None.
+            return [None] * reads.height
+        # Empty string counts as missing (== None for the any-missing rule).
+        parts.append(pl.when(pl.col(col) == "").then(None).otherwise(pl.col(col)))
+    reconstructed = reads.select(pl.concat_str(parts, ignore_nulls=False).alias("_chain"))["_chain"]
+    return reconstructed.to_list()
 
 
 def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:

@@ -16,6 +16,18 @@ from pka_tables import PKaSet
 
 _AA_INDEX = {aa: i for i, aa in enumerate(STANDARD_AAS)}
 
+# byte -> AA index lookup (256 entries, int8). Non-standard bytes stay at -1.
+# Both upper- and lower-case map to the same index so the table reproduces the
+# scalar `.upper()` + standard-AA filter in a single numpy gather. latin-1
+# encoding with errors="replace" keeps exactly one byte per Python char (so
+# per-char offsets stay aligned) and maps any non-latin-1 char to byte 0x3F
+# ('?'), which the table leaves at -1 — i.e. dropped, like any non-standard
+# residue. See build_counts for how the table is applied.
+_BYTE_TO_AA = np.full(256, -1, dtype=np.int8)
+for _i, _aa in enumerate(STANDARD_AAS):
+    _BYTE_TO_AA[ord(_aa)] = _i
+    _BYTE_TO_AA[ord(_aa.lower())] = _i
+
 # --------------------------------------------------------------------------- #
 # Constant vectors in STANDARD_AAS order, sourced verbatim from BioPython so
 # the vectorized math uses the SAME numbers the scalar oracle (properties.py)
@@ -87,21 +99,104 @@ class Substrate:
     valid: np.ndarray  # (N,) bool
 
 
-def build_counts(seqs: list[str | None]) -> Substrate:
+@dataclass(frozen=True)
+class _Cleaned:
+    """Vectorized cleaning intermediate, shared by build_counts and
+    instability_index. Encodes every candidate sequence (not None/empty/no `*`)
+    as one flat AA-index buffer with row boundaries, so per-char Python loops
+    are replaced by a single numpy gather over the joined bytes.
+
+    * `cand_rows`   — (C,) original row index of each candidate (into the full N).
+    * `aa_flat`     — (T,) int8 AA index per *standard* residue, concatenated in
+                      candidate then residue order (non-standard chars dropped).
+    * `row_of_res`  — (T,) candidate-local row id (0..C-1) for each entry of
+                      aa_flat — i.e. which candidate that residue belongs to.
+    * `lengths`     — (C,) standard-residue count per candidate (== len of its
+                      slice of aa_flat).
+    """
+
+    n: int
+    cand_rows: np.ndarray
+    aa_flat: np.ndarray
+    row_of_res: np.ndarray
+    lengths: np.ndarray
+
+
+def _clean_vectorized(seqs: list[str | None]) -> _Cleaned:
+    """Clean a column of sequences in one numpy pass.
+
+    Candidate = not None, not "", and no stop codon `*` (matches the scalar
+    `is_invalid_sequence` short-circuit). Each candidate is latin-1 encoded
+    (one byte per char), the bytes are concatenated into a single buffer,
+    `np.frombuffer`'d once, and mapped through `_BYTE_TO_AA`; standard residues
+    keep their AA index, non-standard chars (mapped to -1) are dropped. A
+    per-char candidate-local row id is built with `np.repeat`, then masked to
+    the kept residues — so `aa_flat[k]` belongs to candidate `row_of_res[k]`.
+    """
     n = len(seqs)
-    counts = np.zeros((n, 20), dtype=np.int64)
-    valid = np.zeros(n, dtype=bool)
+    cand_rows: list[int] = []
+    buf = bytearray()
+    char_lengths: list[int] = []  # per-candidate char count (== byte count)
     for i, s in enumerate(seqs):
         if s is None or s == "" or "*" in s:
             continue
-        row = counts[i]
-        any_std = False
-        for c in s.upper():
-            j = _AA_INDEX.get(c)
-            if j is not None:
-                row[j] += 1
-                any_std = True
-        valid[i] = any_std
+        b = s.encode("latin-1", "replace")
+        cand_rows.append(i)
+        char_lengths.append(len(b))
+        buf += b
+
+    cand_rows_arr = np.asarray(cand_rows, dtype=np.intp)
+    if not buf:
+        empty_i = np.empty(0, dtype=np.intp)
+        empty_aa = np.empty(0, dtype=np.int8)
+        return _Cleaned(
+            n=n,
+            cand_rows=cand_rows_arr,
+            aa_flat=empty_aa,
+            row_of_res=empty_i,
+            lengths=np.zeros(len(cand_rows_arr), dtype=np.int64),
+        )
+
+    char_len_arr = np.asarray(char_lengths, dtype=np.intp)
+    # AA index per character of the joined buffer; non-standard chars -> -1.
+    aa_per_char = _BYTE_TO_AA[np.frombuffer(bytes(buf), dtype=np.uint8)]
+    # Candidate-local row id per character (0..C-1), then drop non-standard.
+    row_per_char = np.repeat(np.arange(len(char_len_arr), dtype=np.intp), char_len_arr)
+    keep = aa_per_char >= 0
+    aa_flat = aa_per_char[keep]
+    row_of_res = row_per_char[keep]
+    # Standard-residue count per candidate (folds the kept mask back per row).
+    lengths = np.bincount(row_of_res, minlength=len(char_len_arr)).astype(np.int64)
+    return _Cleaned(
+        n=n,
+        cand_rows=cand_rows_arr,
+        aa_flat=aa_flat,
+        row_of_res=row_of_res,
+        lengths=lengths,
+    )
+
+
+def build_counts(seqs: list[str | None]) -> Substrate:
+    """Per-residue (N, 20) count matrix + effective length + validity, matching
+    properties.py's scalar cleaning exactly.
+
+    Fully vectorized: candidates are cleaned to one flat AA-index buffer
+    (`_clean_vectorized`), counts are scattered with a single `np.add.at` over
+    the (candidate-local-row, AA-index) pairs, then mapped back to the full N
+    rows. A candidate is valid iff at least one standard residue remained
+    (lengths > 0) — reproducing the scalar `clean_sequence(...) or None` rule.
+    """
+    cl = _clean_vectorized(seqs)
+    n = cl.n
+    counts = np.zeros((n, 20), dtype=np.int64)
+    valid = np.zeros(n, dtype=bool)
+    n_cand = len(cl.cand_rows)
+    if n_cand:
+        cand_counts = np.zeros((n_cand, 20), dtype=np.int64)
+        if cl.aa_flat.size:
+            np.add.at(cand_counts, (cl.row_of_res, cl.aa_flat.astype(np.intp)), 1)
+        counts[cl.cand_rows] = cand_counts
+        valid[cl.cand_rows] = cl.lengths > 0
     length = counts.sum(axis=1)
     return Substrate(counts=counts, length=length, valid=valid)
 
@@ -378,17 +473,32 @@ def instability_index(seqs: list[str | None]) -> np.ndarray:
     preserved: each row's value is a pure function of that row's sequence, with
     no dict/set iteration leaking into the output.
     """
-    n = len(seqs)
-    out = np.full(n, np.nan, dtype=np.float64)
-    for i, s in enumerate(seqs):
-        if s is None or s == "" or "*" in s:
-            continue
-        idx = [j for c in s.upper() if (j := _AA_INDEX.get(c)) is not None]
-        length = len(idx)
-        if length < _INSTABILITY_MIN_LENGTH:
-            # Includes the "nothing standard remains" case (length == 0).
-            continue
-        a = np.asarray(idx, dtype=np.intp)
-        score = _DIWV[a[:-1], a[1:]].sum()
-        out[i] = (10.0 / length) * score
+    cl = _clean_vectorized(seqs)
+    out = np.full(cl.n, np.nan, dtype=np.float64)
+    n_cand = len(cl.cand_rows)
+    if n_cand == 0:
+        return out
+
+    # Consecutive cleaned residues k, k+1 form a dipeptide only when they belong
+    # to the SAME candidate (row boundaries in the joined buffer must not leak a
+    # pair across two sequences). Mask on row_of_res, gather DIWV weights, then
+    # sum per candidate with np.add.at — order-preserving, no per-row Python.
+    aa = cl.aa_flat.astype(np.intp)
+    rows = cl.row_of_res
+    if aa.size >= 2:
+        same = rows[:-1] == rows[1:]
+        left = aa[:-1][same]
+        right = aa[1:][same]
+        pair_row = rows[:-1][same]
+        weights = _DIWV[left, right]
+        score = np.zeros(n_cand, dtype=np.float64)
+        np.add.at(score, pair_row, weights)
+    else:
+        score = np.zeros(n_cand, dtype=np.float64)
+
+    lengths = cl.lengths
+    keep = lengths >= _INSTABILITY_MIN_LENGTH  # excludes length 0 ("nothing standard")
+    if keep.any():
+        rows_keep = cl.cand_rows[keep]
+        out[rows_keep] = (10.0 / lengths[keep]) * score[keep]
     return out
