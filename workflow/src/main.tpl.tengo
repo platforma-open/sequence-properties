@@ -343,11 +343,11 @@ wf.body(func(args) {
 	// median CDR-H3 length per chain).
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
 	// Measured optimized footprint of the vectorized Python step: ~4.85 GB peak
-	// RSS per 1M full-paired antibody clones (so ~9.7 GB at 2M). 16GiB covers 2M
-	// with ~1.5x headroom; cpu(1) stays single-threaded by design.
+	// RSS per 1M full-paired antibody clones (so ~9.7 GB at 2M). 12GiB covers ~2M
+	// with headroom; cpu(1) stays single-threaded by design.
 	pyRun := exec.builder().
 		software(soft).
-		mem("16GiB").
+		mem("12GiB").
 		cpu(1).
 		addFile("input.tsv", seqTable).
 		writeFile("plan.json", canonical.encode(plan)).
