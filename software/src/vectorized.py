@@ -4,6 +4,7 @@ Single-threaded by construction (pure numpy elementwise + per-seq counting)."""
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -225,3 +226,58 @@ def charge_shift(
     hi = _charge_raw(sub, ph_from, pka_set, include_cys)
     lo = _charge_raw(sub, ph_to, pka_set, include_cys)
     return _mask(hi - lo, sub.valid)
+
+
+def isoelectric_point(
+    sub: Substrate,
+    pka_set: PKaSet,
+    include_cys: bool = True,
+    lo: float = 0.0,
+    hi: float = 14.0,
+    tol: float = 1e-3,
+) -> np.ndarray:
+    """Vectorized pI: lockstep fixed-iteration bisection of `_charge_raw` over
+    all rows, bit-identical to the scalar `properties.isoelectric_point`.
+
+    Mirrors `properties._bisect_charge_zero(charge_fn, lo, hi, tol)` exactly:
+
+    * SAME bracket [lo, hi] and tol -> the bracket width starts at (hi - lo) and
+      halves every iteration regardless of data, so the loop runs the SAME
+      data-independent `ceil(log2((hi - lo) / tol))` iterations (== 14 for
+      [0, 14], tol 1e-3) for every row;
+    * SAME branch test `(f_mid > 0) == (f_lo > 0)` to move `lo` up to `mid`,
+      else move `hi` down to `mid`;
+    * `_charge_raw` is bit-identical to the scalar charge (charge parity = 0.0).
+
+    The only scalar behaviour not reproduced is the `if f_mid == 0.0: return mid`
+    early-out — a midpoint landing on EXACT zero net charge — which is
+    astronomically rare and, when it happens, the lockstep loop still converges
+    to the same value within `tol`.
+
+    Rows with no zero crossing in [lo, hi] (both endpoints strictly same-sign)
+    or invalid rows -> NaN, matching the scalar `None`. Returns float64.
+    """
+    f = lambda ph: _charge_raw(sub, ph, pka_set, include_cys)  # noqa: E731
+
+    f_lo = f(lo)
+    f_hi = f(hi)
+    # No zero-crossing when both endpoints share a strict sign (matches scalar).
+    crossing = ~(((f_lo > 0) & (f_hi > 0)) | ((f_lo < 0) & (f_hi < 0)))
+
+    n = sub.counts.shape[0]
+    lo_a = np.full(n, lo, dtype=np.float64)
+    hi_a = np.full(n, hi, dtype=np.float64)
+    f_lo_a = np.asarray(f_lo, dtype=np.float64).copy()
+
+    iters = math.ceil(math.log2((hi - lo) / tol))
+    for _ in range(iters):
+        mid = 0.5 * (lo_a + hi_a)
+        f_mid = f(mid)
+        go_lo = (f_mid > 0) == (f_lo_a > 0)  # same branch test as scalar
+        lo_a = np.where(go_lo, mid, lo_a)
+        f_lo_a = np.where(go_lo, f_mid, f_lo_a)
+        hi_a = np.where(go_lo, hi_a, mid)
+
+    pi = 0.5 * (lo_a + hi_a)
+    pi[~(crossing & sub.valid)] = np.nan
+    return pi
