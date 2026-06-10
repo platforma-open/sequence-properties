@@ -38,10 +38,11 @@ _REGION_LEN = {
 _STANDARD_AAS = "ACDEFGHIKLMNPQRSTVWY"
 
 _N_CLONES = 50_000
-# Generous bound: vectorized path runs well under a second on the dev Mac;
-# 3.0 s leaves wide headroom for slow CI without masking a real regression
-# (the serial baseline is ~6 s).
-_TIME_BUDGET_S = 3.0
+# Generous bound: after vectorizing build_counts + instability + full-chain
+# reconstruction the path runs ~0.4 s / 50k on the dev Mac (~14x over the ~6 s
+# serial baseline). 1.5 s keeps ~3x headroom for slow CI without masking a real
+# regression — a return toward the per-row Python loop would blow well past it.
+_TIME_BUDGET_S = 1.5
 
 _PLAN = {
     "mode": "antibody_tcr_legacy_bulk",
