@@ -59,6 +59,13 @@ ignore = []
 fixable = ["ALL"]
 unfixable = []
 
+[tool.ruff.lint.per-file-ignores]
+# E402: these modules intentionally run setup before imports — main.py pins
+# POLARS_MAX_THREADS before polars is imported; _corpus_gen.py adds src to
+# sys.path before importing the package (it runs standalone via `python -m`).
+"src/main.py" = ["E402"]
+"tests/_corpus_gen.py" = ["E402"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

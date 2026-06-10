@@ -18,14 +18,14 @@ import os
 # explicit override from the environment still wins.
 os.environ.setdefault("POLARS_MAX_THREADS", "1")
 
-import argparse  # noqa: E402
-import json  # noqa: E402
-import logging  # noqa: E402
-import sys  # noqa: E402
-from pathlib import Path  # noqa: E402
+import argparse
+import json
+import logging
+import sys
+from pathlib import Path
 
-from io_layer import read_input_tsv, read_plan, write_output_tsv  # noqa: E402
-from pipeline import run  # noqa: E402
+from io_layer import read_input_tsv, read_plan, write_output_tsv
+from pipeline import run
 
 
 def _configure_logging() -> None:
