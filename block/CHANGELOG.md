@@ -1,5 +1,12 @@
 ## 1.0.0
 
+## 1.5.1
+
+### Patch Changes
+
+- Updated dependencies [4d59c02]
+  - @platforma-open/milaboratories.sequence-properties.workflow@1.3.2
+
 ## 1.5.0
 
 ### Minor Changes
