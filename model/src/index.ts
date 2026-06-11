@@ -33,6 +33,16 @@ const inputAnchorSpecs = [
     axes: [{ name: "pl7.app/sampleId" }, { name: "pl7.app/vdj/scClonotypeKey" }],
     annotations: { "pl7.app/isAnchor": "true" },
   },
+  // Per-cluster centroid dataset (clonotype-clustering). A clonotype-shaped 2-axis
+  // dataset where the row entity is a cluster: axis[0] = sampleId (real per-sample
+  // abundance anchor), axis[1] = "pl7.app/clustering/centroidId" (values = real
+  // clusterId) carrying the synthetic per-cluster centroid sequence. The dedicated
+  // centroidId axis (not the producer's plain clusterId) keeps anchoring here from
+  // pulling its clusters table's centroid_*/reference_centroid_* columns.
+  {
+    axes: [{ name: "pl7.app/sampleId" }, { name: "pl7.app/clustering/centroidId" }],
+    annotations: { "pl7.app/isAnchor": "true" },
+  },
 ];
 
 export const platforma = BlockModelV3.create(blockDataModel)
