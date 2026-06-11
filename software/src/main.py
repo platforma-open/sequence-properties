@@ -9,6 +9,15 @@ Invoked from the Tengo workflow as:
 
 from __future__ import annotations
 
+import os
+
+# Pin the polars thread pool to 1 BEFORE polars (or anything importing it,
+# including `pipeline`) is loaded — POLARS_MAX_THREADS is read once at import.
+# The block reserves cpu(1), and single-threaded execution keeps output
+# byte-stable (no thread-count-dependent reduction order). setdefault so an
+# explicit override from the environment still wins.
+os.environ.setdefault("POLARS_MAX_THREADS", "1")
+
 import argparse
 import json
 import logging

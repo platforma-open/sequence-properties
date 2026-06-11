@@ -342,9 +342,12 @@ wf.body(func(args) {
 	// stats.json (dataset-level scalars consumed by the info layer — e.g. R11c
 	// median CDR-H3 length per chain).
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
+	// 12GiB (up from the 4GiB default): the vectorized step materializes full-N
+	// count matrices, so peak memory scales with clone count. cpu(1) is
+	// deliberate — the engine is single-threaded for deterministic output.
 	pyRun := exec.builder().
 		software(soft).
-		mem("4GiB").
+		mem("12GiB").
 		cpu(1).
 		addFile("input.tsv", seqTable).
 		writeFile("plan.json", canonical.encode(plan)).

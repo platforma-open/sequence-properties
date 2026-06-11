@@ -2,16 +2,24 @@
 name = "sequence-properties-calc-script"
 version = "0.0.0"
 requires-python = ">=3.12.0, <3.13"
+# Runtime dependencies — single source of truth. These exact pins are exported to
+# src/requirements.txt (top-level only) via `pnpm deps:export`, which is what pl-pkg
+# builds from and what the scientific-slim runenv installs offline. Keep versions
+# aligned with the wheels shipped by the runenv.
+dependencies = [
+    "polars-lts-cpu==1.33.1",
+    "numpy==2.2.6",
+    "pyarrow==21.0.0",
+    "biopython==1.87",
+]
 
 [dependency-groups]
+# Dev-only tooling (not shipped). Runtime libs live in [project.dependencies] above.
 dev = [
-    "polars>=1.39.0",
-    "numpy>=2.0.0",
-    "pyarrow>=18.0.0",
-    "biopython>=1.84",
     "pytest>=9.0.2",
     "pytest-cov>=6.0.0",
     "ruff>=0.7.0",
+    "hypothesis>=6.155.2",
 ]
 
 [tool.pytest.ini_options]
@@ -50,6 +58,13 @@ select = ["E4", "E7", "E9", "E501", "F", "I"]
 ignore = []
 fixable = ["ALL"]
 unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+# E402: these modules intentionally run setup before imports — main.py pins
+# POLARS_MAX_THREADS before polars is imported; _corpus_gen.py adds src to
+# sys.path before importing the package (it runs standalone via `python -m`).
+"src/main.py" = ["E402"]
+"tests/_corpus_gen.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"
