@@ -31,6 +31,21 @@ canonicalJsonResource := func(value) {
 	return smart.createValueResource(constants.RTYPE_JSON, canonical.encode(value))
 }
 
+// Content tag for exported columns, replacing the per-block blockId. We use the
+// backend's own content key of the source table (info().CanonicalID, base32),
+// which is deterministic for identical content: identical results across blocks
+// share the same tag (columns dedupe instead of being made unique per block),
+// while different results get different tags (no collision).
+contentHash := func(table) {
+	i := table.info()
+	if !is_undefined(i.CanonicalID) {
+		return ll.base32Encode(i.CanonicalID)
+	}
+	// Field reference: dereference to its value resource.
+	ri := smart.resource(i.Value).info()
+	return ll.base32Encode(ri.CanonicalID)
+}
+
 REQUIRED_FEATURES := ["FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4"]
 
 detectMode := func(axisSpec) {
@@ -138,7 +153,6 @@ wf.prepare(func(args) {
 })
 
 wf.body(func(args) {
-	blockId := wf.blockId().getDataAsJson()
 	bundle := args.columns
 	datasetSpec := bundle.getSpec(args.inputAnchor)
 
@@ -431,40 +445,41 @@ wf.body(func(args) {
 		}, { splitDataAndSpec: true, cpu: 1, mem: "4GiB" })
 	}
 
-	// Stamp every column's spec with `pl7.app/blockId` in domain (for run
-	// attribution) and the upstream trace (so downstream blocks see the full
-	// provenance). The same pFrame is published both as the block's UI output
-	// and as the result-pool export — one canonical resource, two consumers.
-	// The trace is also how the block's own UI distinguishes our property
-	// columns from upstream metadata columns mixed into propertiesPfHandle.
-	// Per-instance trace label. Resolution lives in the model
-	// (resolveTraceLabel in model/src/label.ts) — the model projects a single
-	// string into args so the workflow does not know about customBlockLabel
-	// vs defaultBlockLabel vs the static fallback. The fallback chain
-	// itself — customBlockLabel || defaultBlockLabel || "Sequence Properties"
-	// — matches clonotype-clustering and titeseq-analysis PR #13; only the
-	// location of the resolution differs (model here, inline-Tengo there).
+	// Stamp every column's spec with a content tag (pl7.app/contentHash, derived
+	// from the source table's CanonicalID instead of the per-block blockId) and
+	// the upstream trace. Identical results across blocks share the tag (columns
+	// dedupe) while different results stay distinct. The same pFrame is published
+	// both as the block's UI output and as the result-pool export. The trace also
+	// lets the block's UI distinguish our property columns from upstream metadata
+	// columns mixed into propertiesPfHandle.
+	//
+	// The trace step is no longer keyed on blockId (the block is no longer the
+	// identity of the result; its content is). `id` is optional in the trace
+	// schema; omitting it keeps the provenance step identical across
+	// content-identical runs. Per-instance trace label resolution lives in the
+	// model (resolveTraceLabel in model/src/label.ts).
 	trace := pSpec.makeTrace(datasetSpec, {
 		type: "milaboratories.sequence-properties",
 		importance: 30,
-		label: args.traceLabel,
-		id: blockId
+		label: args.traceLabel
 	})
-	stamp := func(spec) {
+	stamp := func(spec, cHash) {
 		return trace.inject(columnSpecs.cloneSpec(spec,
-			{ "pl7.app/blockId": blockId },
+			{ "pl7.app/contentHash": cHash },
 			undefined))
 	}
 
 	pf := pframes.pFrameBuilder()
+	scalarHash := contentHash(propertiesTsv)
 	for _, k in maps.getKeys(scalarOut) {
 		v := scalarOut[k]
-		pf.add(k, stamp(v.spec), v.data)
+		pf.add(k, stamp(v.spec, scalarHash), v.data)
 	}
 	if aaOut != undefined {
+		aaHash := contentHash(aaFractionTsv)
 		for _, k in maps.getKeys(aaOut) {
 			v := aaOut[k]
-			pf.add(k, stamp(v.spec), v.data)
+			pf.add(k, stamp(v.spec, aaHash), v.data)
 		}
 	}
 	pf = pf.build()
