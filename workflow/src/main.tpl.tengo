@@ -12,8 +12,6 @@ render := import("@platforma-sdk/workflow-tengo:render")
 smart := import("@platforma-sdk/workflow-tengo:smart")
 ll := import("@platforma-sdk/workflow-tengo:ll")
 pframes := import("@platforma-sdk/workflow-tengo:pframes")
-xsv := import("@platforma-sdk/workflow-tengo:pframes.xsv")
-pSpec := import("@platforma-sdk/workflow-tengo:pframes.spec")
 canonical := import("@platforma-sdk/workflow-tengo:canonical")
 maps := import("@platforma-sdk/workflow-tengo:maps")
 constants := import("@platforma-sdk/workflow-tengo:constants")
@@ -21,6 +19,7 @@ messages := import(":messages")
 columnSpecs := import(":columns")
 
 infoTpl := assets.importTemplate(":info")
+processTpl := assets.importTemplate(":process")
 
 // JSON resource with sorted-key canonical bytes. smart.createJsonResource uses
 // Tengo's stdlib json.encode, which preserves Go's randomized map iteration —
@@ -29,21 +28,6 @@ infoTpl := assets.importTemplate(":info")
 // values always produce identical bytes.
 canonicalJsonResource := func(value) {
 	return smart.createValueResource(constants.RTYPE_JSON, canonical.encode(value))
-}
-
-// Content tag for exported columns, replacing the per-block blockId. We use the
-// backend's own content key of the source table (info().CanonicalID, base32),
-// which is deterministic for identical content: identical results across blocks
-// share the same tag (columns dedupe instead of being made unique per block),
-// while different results get different tags (no collision).
-contentHash := func(table) {
-	i := table.info()
-	if !is_undefined(i.CanonicalID) {
-		return ll.base32Encode(i.CanonicalID)
-	}
-	// Field reference: dereference to its value resource.
-	ri := smart.resource(i.Value).info()
-	return ll.base32Encode(ri.CanonicalID)
 }
 
 REQUIRED_FEATURES := ["FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4"]
@@ -408,10 +392,8 @@ wf.body(func(args) {
 	})
 	infoBlob := infoResult.output("info", 24 * 60 * 60 * 1000)
 
-	// Build the canonical column list (no blockId, no isOutput, no trace) and
-	// import the Python TSV outputs into parquet-backed PColumn data. With
-	// canonical specs the xsv.importFile renders dedup across blocks; only
-	// the spec-rewrap into the unified pFrame below is per-block.
+	// Column-build args forwarded to the process template (no blockId, no trace
+	// — those are stamped there at pframe-build time).
 	colArgs := {
 		mode: mode,
 		receptor: receptor,
@@ -426,72 +408,34 @@ wf.body(func(args) {
 	visibleKeyAxisSpec := columnSpecs.cloneSpec(keyAxisSpec, undefined, {
 		"pl7.app/table/visibility": "default"
 	})
-	canonicalCols := columnSpecs.buildColumns(colArgs)
-	scalarOut := xsv.importFile(propertiesTsv, "tsv", {
-		axes: [{ column: "entity_key", spec: visibleKeyAxisSpec }],
-		columns: canonicalCols,
-		storageFormat: "Parquet",
-		partitionKeyLength: 0
-	}, { splitDataAndSpec: true, cpu: 1, mem: "4GiB" })
 
-	aaOut := undefined
-	if mode == "peptide" {
-		aaCol := columnSpecs.aaFractionColumn(visibleKeyAxisSpec)
-		aaOut = xsv.importFile(aaFractionTsv, "tsv", {
-			axes: aaCol.axes,
-			columns: [aaCol.column],
-			storageFormat: "Parquet",
-			partitionKeyLength: 0
-		}, { splitDataAndSpec: true, cpu: 1, mem: "4GiB" })
-	}
-
-	// Stamp every column's spec with a content tag (pl7.app/contentHash, derived
-	// from the source table's CanonicalID instead of the per-block blockId) and
-	// the upstream trace. Identical results across blocks share the tag (columns
-	// dedupe) while different results stay distinct. The same pFrame is published
-	// both as the block's UI output and as the result-pool export. The trace also
-	// lets the block's UI distinguish our property columns from upstream metadata
-	// columns mixed into propertiesPfHandle.
-	//
-	// The trace step is no longer keyed on blockId (the block is no longer the
-	// identity of the result; its content is). `id` is optional in the trace
-	// schema; omitting it keeps the provenance step identical across
-	// content-identical runs. Per-instance trace label resolution lives in the
-	// model (resolveTraceLabel in model/src/label.ts).
-	trace := pSpec.makeTrace(datasetSpec, {
-		type: "milaboratories.sequence-properties",
-		importance: 30,
-		label: args.traceLabel
+	// Import + per-column content-tagging + trace stamping is deferred to
+	// process.tpl.tengo: it needs the Python output tables as RESOLVED render
+	// inputs to read their content key (info().CanonicalID), which is not
+	// available in this body (the same body that creates the exec). The render
+	// is blockId-independent, so it dedups across block instances with identical
+	// inputs.
+	processResult := render.create(processTpl, {
+		properties: propertiesTsv,
+		aaFraction: aaFractionTsv,
+		params: canonicalJsonResource({
+			colArgs: colArgs,
+			visibleKeyAxisSpec: visibleKeyAxisSpec,
+			traceLabel: args.traceLabel,
+			datasetSpec: datasetSpec
+		})
+	}, {
+		metaInputs: { mem: args.mem }
 	})
-	stamp := func(spec, cHash) {
-		return trace.inject(columnSpecs.cloneSpec(spec,
-			{ "pl7.app/contentHash": cHash },
-			undefined))
-	}
-
-	pf := pframes.pFrameBuilder()
-	scalarHash := contentHash(propertiesTsv)
-	for _, k in maps.getKeys(scalarOut) {
-		v := scalarOut[k]
-		pf.add(k, stamp(v.spec, scalarHash), v.data)
-	}
-	if aaOut != undefined {
-		aaHash := contentHash(aaFractionTsv)
-		for _, k in maps.getKeys(aaOut) {
-			v := aaOut[k]
-			pf.add(k, stamp(v.spec, aaHash), v.data)
-		}
-	}
-	pf = pf.build()
 
 	return {
 		outputs: {
-			propertiesPf: pframes.exportFrame(pf),
+			propertiesPf: processResult.output("propertiesPf", 24 * 60 * 60 * 1000),
 			info: infoBlob,
 			processingLog: processingLog
 		},
 		exports: {
-			properties: pf
+			properties: processResult.output("exportPframe", 24 * 60 * 60 * 1000)
 		}
 	}
 })
