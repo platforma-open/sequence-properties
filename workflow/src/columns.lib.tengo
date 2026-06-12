@@ -6,13 +6,13 @@
 //                                       Returns `[{column, id, naRegex,
 //                                       allowNA, spec}, ...]` with feature-
 //                                       specific domains and annotations.
-//                                       No blockId, no isOutput, no trace
+//                                       No content tag, no isOutput, no trace
 //                                       — those are stamped on by the caller
 //                                       at pframe-build time.
 //   - `aaFractionColumn()`           — 2-axis AA-fraction column descriptor
 //                                       (peptide mode only).
 //   - `cloneSpec(spec, dExtras, aExtras)` — spec-cloning helper used by the
-//                                       caller to layer blockId / isOutput /
+//                                       caller to layer contentHash / isOutput /
 //                                       any other per-consumer overrides.
 //
 // `args` shape:
@@ -70,7 +70,7 @@ makeCol := func(tsvCol, valName, valueType, label, domain, annotations) {
 }
 
 // ---------------------------------------------------------------------------
-// Canonical column lists per scope. No `toPlot`, no `blockId` — the public
+// Canonical column lists per scope. No `toPlot`, no content tag — the public
 // getters layer those on per consumer.
 // ---------------------------------------------------------------------------
 
@@ -386,7 +386,7 @@ buildColumns := func(args) {
 // ---------------------------------------------------------------------------
 // Spec-cloning helper. Builds a fresh spec dict with optional domain and
 // annotation extras. Callers use this to layer per-consumer overrides
-// (e.g. `pl7.app/blockId` in domain, `pl7.app/isOutput` in annotations).
+// (e.g. `pl7.app/contentHash` in domain, `pl7.app/isOutput` in annotations).
 // ---------------------------------------------------------------------------
 
 cloneSpec := func(spec, domainExtras, annotationExtras) {
