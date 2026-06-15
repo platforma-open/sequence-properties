@@ -56,6 +56,10 @@ detectMode := func(axisSpec) {
 	// (aminoacid) per cluster on a 2-axis [sampleId, centroidId] anchor. Treat as legacy-bulk
 	// vdj for sequence pulling; single-cell centroids still carry the chain domain on the
 	// sequence columns, so the per-chain handling in the body works unchanged.
+	// The centroidId axis carries no VDJ receptor/chain keys, so receptor is resolved
+	// solely from the chain domain on the sequence columns. A producer that omits chain
+	// metadata leaves receptorSeen false and falls back to the IG default — surfaced (not
+	// silent) by the R13b receptorNotDetected() warning at the !receptorSeen check below.
 	if axisSpec.name == "pl7.app/clustering/centroidId" {
 		return "antibody_tcr_legacy_bulk"
 	}
