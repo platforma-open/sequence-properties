@@ -52,16 +52,16 @@ detectMode := func(axisSpec) {
 	if axisSpec.name == "pl7.app/vdj/scClonotypeKey" {
 		return "antibody_tcr_legacy_sc"
 	}
-	// Per-cluster centroid dataset (clonotype-clustering): synthetic pl7.app/vdj/sequence
-	// (aminoacid) per cluster on a 2-axis [sampleId, centroidId] anchor. Treat as legacy-bulk
-	// vdj for sequence pulling; single-cell centroids still carry the chain domain on the
-	// sequence columns, so the per-chain handling in the body works unchanged.
-	// The centroidId axis carries no VDJ receptor/chain keys, so receptor is resolved
-	// solely from the chain domain on the sequence columns. A producer that omits chain
-	// metadata leaves receptorSeen false and falls back to the IG default — surfaced (not
-	// silent) by the R13b receptorNotDetected() warning at the !receptorSeen check below.
+	// Per-cluster centroid dataset (clonotype-clustering): a synthetic 2-axis
+	// [sampleId, centroidId] anchor carrying one consensus sequence per cluster. The
+	// "Export consensus sequences as a dataset" feature is peptide-only (the producer
+	// gates the export on peptide inputs), so the centroid sequence column is a peptide
+	// aminoacid column (pl7.app/sequence, pl7.app/feature: "peptide") and the dataset is
+	// processed in peptide mode — the peptideSequences matcher in prepare() picks it up.
+	// NOTE: if VDJ/single-cell centroid export is ever re-enabled upstream, this must
+	// branch on the centroid sequence column's feature instead of assuming peptide.
 	if axisSpec.name == "pl7.app/clustering/centroidId" {
-		return "antibody_tcr_legacy_bulk"
+		return "peptide"
 	}
 	return ""
 }
