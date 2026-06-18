@@ -127,7 +127,7 @@ describe('edge cases', () => {
 describe('downstream consumption', () => {
   it.todo('score columns are discoverable by a downstream block via the result pool');
   it.todo('output PColumns carry pl7.app/trace stamped with this block\'s label');
-  it.todo('export PFrame stamps pl7.app/contentHash on score column domains');
+  it.todo('export PFrame stamps blockId on score column domains');
 });
 
 // ---------------------------------------------------------------------------
@@ -160,6 +160,6 @@ describe('dedup', () => {
 describe('cross-block composition', () => {
   it.todo('canary: real MiXCR fastq → sequence-properties detects sc IG and emits scores');
   it.todo('end-to-end: peptide-extraction → sequence-properties → lead-selection');
-  it.todo('two sequence-properties instances on identical input share columns via pl7.app/contentHash');
+  it.todo('two sequence-properties instances in one project disambiguate via blockId');
   it.todo('VDJ chain: full-coverage MiXCR → seq-properties → lead-selection');
 });
