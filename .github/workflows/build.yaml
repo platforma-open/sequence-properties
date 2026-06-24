@@ -37,6 +37,12 @@ jobs:
       pnpm-recursive-tests: false
       team-id: 'ciplopen'
 
+      # TEMPORARY: pin test backend to last release before MILAB-6323 (deny-by-default
+      # schemas). On 'main' the BContextEnd resource denies user KV reads, which breaks
+      # the SDK tree-sync used by block tests. Revert to default ('main') once upstream
+      # grants WithReadKV on the context schemas (or the SDK tolerates the denial).
+      pl-docker-tag: '4.0.1'
+
       package-path: 'block'
       publish-to-public: true
       create-tag: true
