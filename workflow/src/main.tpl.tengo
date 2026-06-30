@@ -39,6 +39,12 @@ detectMode := func(axisSpec) {
 		if dom != undefined && dom["pl7.app/peptide/extractionRunId"] != undefined {
 			return "peptide"
 		}
+		// synthetic-repertoire-profiler keys variants on the same axis but stamps
+		// pl7.app/repertoire/extractionRunId. Its whole-variant sequence gets the
+		// same whole-sequence property treatment as a peptide (see SEQ-mode below).
+		if dom != undefined && dom["pl7.app/repertoire/extractionRunId"] != undefined {
+			return "amplicon"
+		}
 		if dom != undefined && dom["pl7.app/vdj/clonotypingRunId"] != undefined {
 			return "antibody_tcr_universal"
 		}
@@ -115,6 +121,19 @@ wf.prepare(func(args) {
 		}
 	}, "peptideSequences")
 
+	// Amplicon whole-variant sequence (synthetic-repertoire-profiler). The
+	// per-variant main aa sequence carries feature "amplicon-sequence"; region
+	// subsequences carry their region name and are intentionally excluded here —
+	// whole-sequence mode scans the full variant.
+	bb.addMulti({
+		axes: [{ anchor: "main", idx: 1 }],
+		name: "pl7.app/sequence",
+		domain: {
+			"pl7.app/feature": "amplicon-sequence",
+			"pl7.app/alphabet": "aminoacid"
+		}
+	}, "ampliconSequences")
+
 	// VDJ region columns (legacy MiXCR path).
 	// Filter on alphabet only — NOT on pl7.app/vdj/isAssemblingFeature, per spec R4.
 	bb.addMulti({
@@ -162,8 +181,13 @@ wf.body(func(args) {
 		}
 	}
 	if mode == "" {
-		ll.panic("no recognized sequence key axis found; connect a peptide extraction or MiXCR clonotyping dataset")
+		ll.panic("no recognized sequence key axis found; connect a peptide extraction, synthetic repertoire profiler, or MiXCR clonotyping dataset")
 	}
+
+	// Whole-sequence modes: one amino-acid sequence per key, no regions/chains.
+	// Peptide and amplicon share the same physicochemical computation path; they
+	// differ only in which sequence column is read and how outputs are labeled.
+	wholeSeqMode := mode == "peptide" || mode == "amplicon"
 
 	infoMessages := []
 	receptor := "IG" // R13b: default when receptor key absent
@@ -194,12 +218,20 @@ wf.body(func(args) {
 	seqTb := pframes.tsvFileBuilder()
 	seqTb.setAxisHeader(keyAxisSpec, "entity_key")
 
-	if mode == "peptide" {
-		peptideCols := bundle.getColumns("peptideSequences")
-		if len(peptideCols) == 0 {
-			ll.panic("peptide mode detected but no peptide amino-acid sequence column was found in the input dataset")
+	if wholeSeqMode {
+		seqCols := undefined
+		if mode == "peptide" {
+			seqCols = bundle.getColumns("peptideSequences")
+			if len(seqCols) == 0 {
+				ll.panic("peptide mode detected but no peptide amino-acid sequence column was found in the input dataset")
+			}
+		} else {
+			seqCols = bundle.getColumns("ampliconSequences")
+			if len(seqCols) == 0 {
+				ll.panic("amplicon mode detected but no whole-variant amino-acid sequence column (feature 'amplicon-sequence') was found in the input dataset")
+			}
 		}
-		seqTb.add(bundle.getColumn(peptideCols[0].key), { header: "sequence" })
+		seqTb.add(bundle.getColumn(seqCols[0].key), { header: "sequence" })
 
 	} else {
 		// Legacy MiXCR sequences first; fall back to universal naming for forward
@@ -275,7 +307,7 @@ wf.body(func(args) {
 	fullChain := {}
 	cdr3Only := {}
 	chainsWithCdr3 := []
-	if mode != "peptide" {
+	if !wholeSeqMode {
 		// Sorted iteration so partial-region messages append in a stable order.
 		chainKeys := maps.getKeys(chainsFound)
 		for _, chain in chainKeys {
@@ -325,12 +357,21 @@ wf.body(func(args) {
 	// Sorted lists feed both plan.json (Python step input) and the params
 	// resource (process template input) — they must hash deterministically so
 	// the CIDs land on the dedup path across runs of identical input.
-	hasFv := mode != "peptide" && receptor == "IG" && fullChain["A"] && fullChain["B"]
+	hasFv := !wholeSeqMode && receptor == "IG" && fullChain["A"] && fullChain["B"]
 	chainList := maps.getKeys(chainsFound)
 	fullChainList := maps.getKeys(fullChain)
 
+	// The Python engine only knows "peptide" (whole-sequence) vs antibody/TCR
+	// (pipeline.py). Amplicon uses the identical whole-sequence computation, so
+	// it runs as "peptide" here; the distinct "amplicon" mode survives in
+	// colArgs/info below to label outputs with the amplicon-sequence feature.
+	pyMode := mode
+	if mode == "amplicon" {
+		pyMode = "peptide"
+	}
+
 	plan := {
-		mode: mode,
+		mode: pyMode,
 		receptor: receptor,
 		chains: chainList,
 		fullChains: fullChainList,
@@ -368,7 +409,7 @@ wf.body(func(args) {
 	processingLog := pyRun.getStderrStream()
 
 	coverageTier := "peptide"
-	if mode != "peptide" {
+	if !wholeSeqMode {
 		if len(fullChainList) > 0 {
 			coverageTier = "full_chain"
 		} else if len(infoMessages) > 0 {
@@ -421,8 +462,9 @@ wf.body(func(args) {
 	}, { splitDataAndSpec: true, cpu: 1, mem: "4GiB" })
 
 	aaOut := undefined
-	if mode == "peptide" {
-		aaCol := columnSpecs.aaFractionColumn(visibleKeyAxisSpec)
+	if wholeSeqMode {
+		aaFeature := mode == "amplicon" ? "amplicon-sequence" : "peptide"
+		aaCol := columnSpecs.aaFractionColumn(visibleKeyAxisSpec, aaFeature)
 		aaOut = xsv.importFile(aaFractionTsv, "tsv", {
 			axes: aaCol.axes,
 			columns: [aaCol.column],
