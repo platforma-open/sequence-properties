@@ -17,8 +17,12 @@ export function isNumericScalar(spec: PColumnSpec): boolean {
   );
 }
 
-function isPeptideMode(mode: WorkflowMode | undefined): boolean {
-  return mode === "peptide";
+// Whole-sequence modes carry their properties on a single feature domain
+// ("peptide" or "amplicon-sequence"), not per-region CDR3/chain domains.
+function wholeSeqFeature(mode: WorkflowMode | undefined): string | undefined {
+  if (mode === "peptide") return "peptide";
+  if (mode === "amplicon") return "amplicon-sequence";
+  return undefined;
 }
 
 function matchesDomain(spec: PColumnSpec, requiredDomain: Record<string, string>): boolean {
@@ -44,8 +48,9 @@ export function defaultScatterAxes(
   info: WorkflowInfo | undefined,
 ): { x?: PColumnSpec; y?: PColumnSpec } {
   if (info?.mode === undefined) return {};
-  if (isPeptideMode(info.mode)) {
-    const domain = { "pl7.app/feature": "peptide" };
+  const wholeSeq = wholeSeqFeature(info.mode);
+  if (wholeSeq !== undefined) {
+    const domain = { "pl7.app/feature": wholeSeq };
     return {
       x: pickByName(cols, "pl7.app/charge", domain),
       y: pickByName(cols, "pl7.app/hydrophobicity", domain),
@@ -70,8 +75,9 @@ export function defaultHistogramMetric(
   info: WorkflowInfo | undefined,
 ): PColumnSpec | undefined {
   if (info?.mode === undefined) return undefined;
-  if (isPeptideMode(info.mode)) {
-    return pickByName(cols, "pl7.app/hydrophobicity", { "pl7.app/feature": "peptide" });
+  const wholeSeq = wholeSeqFeature(info.mode);
+  if (wholeSeq !== undefined) {
+    return pickByName(cols, "pl7.app/hydrophobicity", { "pl7.app/feature": wholeSeq });
   }
   return pickByName(cols, "pl7.app/hydrophobicity", {
     "pl7.app/feature": "CDR3",
