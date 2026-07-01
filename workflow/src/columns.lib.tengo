@@ -9,8 +9,8 @@
 //                                       No blockId, no isOutput, no trace
 //                                       — those are stamped on by the caller
 //                                       at pframe-build time.
-//   - `aaFractionColumn()`           — 2-axis AA-fraction column descriptor
-//                                       (peptide mode only).
+//   - `aaFractionColumn(spec, feat)` — 2-axis AA-fraction column descriptor
+//                                       (whole-sequence modes: peptide / amplicon).
 //   - `cloneSpec(spec, dExtras, aExtras)` — spec-cloning helper used by the
 //                                       caller to layer blockId / isOutput /
 //                                       any other per-consumer overrides.
@@ -74,8 +74,14 @@ makeCol := func(tsvCol, valName, valueType, label, domain, annotations) {
 // getters layer those on per consumer.
 // ---------------------------------------------------------------------------
 
-buildPeptideColumns := func() {
-	dom := { "pl7.app/feature": "peptide" }
+// Whole-sequence property columns (one aa sequence per key, no regions).
+// Shared by peptide and amplicon modes; `feature` is the pl7.app/feature domain
+// value ("peptide" or "amplicon-sequence") and `deltaLabel` prefixes the
+// ΔCharge column label. The Python TSV headers stay `*_peptide` (the engine runs
+// whole-sequence math under its "peptide" mode for both), so the makeCol source
+// column names are unchanged.
+buildWholeSeqColumns := func(feature, deltaLabel) {
+	dom := { "pl7.app/feature": feature }
 	cols := []
 
 	cols += [makeCol("charge_peptide", "pl7.app/charge", "Double",
@@ -88,8 +94,8 @@ buildPeptideColumns := func() {
 		})]
 
 	cols += [makeCol("chargeShift_peptide", "pl7.app/chargeShift", "Double",
-		"Peptide ΔCharge (pH 7.4 → 6.0)", {
-			"pl7.app/feature": "peptide",
+		deltaLabel + " ΔCharge (pH 7.4 → 6.0)", {
+			"pl7.app/feature": feature,
 			"pl7.app/pH/from": CHARGE_SHIFT_PH_FROM,
 			"pl7.app/pH/to": CHARGE_SHIFT_PH_TO
 		}, {
@@ -373,7 +379,10 @@ buildFvColumns := func() {
 
 buildColumns := func(args) {
 	if args.mode == "peptide" {
-		return buildPeptideColumns()
+		return buildWholeSeqColumns("peptide", "Peptide")
+	}
+	if args.mode == "amplicon" {
+		return buildWholeSeqColumns("amplicon-sequence", "Sequence")
 	}
 	cols := buildCdr3Columns(args.receptor, args.chains)
 	cols += buildFullChainColumns(args.receptor, args.fullChains)
@@ -424,7 +433,7 @@ cloneSpec := func(spec, domainExtras, annotationExtras) {
 // Lives here so the entire column inventory of the block is in one place.
 // ---------------------------------------------------------------------------
 
-aaFractionColumn := func(keyAxisSpec) {
+aaFractionColumn := func(keyAxisSpec, feature) {
 	return {
 		axes: [
 			{ column: "entity_key", spec: keyAxisSpec },
@@ -445,7 +454,7 @@ aaFractionColumn := func(keyAxisSpec) {
 			spec: {
 				name: "pl7.app/aaFraction",
 				valueType: "Double",
-				domain: { "pl7.app/feature": "peptide" },
+				domain: { "pl7.app/feature": feature },
 				annotations: {
 					"pl7.app/label": "AA Fraction",
 					"pl7.app/format": ".3f",

@@ -35,6 +35,10 @@ export type BlockArgs = {
 
 export type WorkflowMode =
   | "peptide"
+  // synthetic-repertoire-profiler amplicon variants: whole-sequence properties
+  // on the variant's amino-acid sequence (same math as peptide mode, labeled
+  // with the "amplicon-sequence" feature instead of "peptide").
+  | "amplicon"
   | "antibody_tcr_universal"
   | "antibody_tcr_legacy_bulk"
   | "antibody_tcr_legacy_sc";
