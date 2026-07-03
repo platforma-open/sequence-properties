@@ -186,7 +186,13 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
     n = len(seqs)
 
     log.info("Computing peptide properties + AA fractions (%d sequences)", n)
-    sub = vec.build_counts(seqs)
+    # Clean the column ONCE and share the _Cleaned between the count substrate and
+    # the instability index — the same pattern the antibody full-chain path uses.
+    # The old code called build_counts(seqs) and instability_index(seqs)
+    # separately, each running a full _clean_vectorized pass (the dominant per-row
+    # cost), so the column was cleaned twice.
+    cleaned = vec._clean_vectorized(seqs)
+    sub = vec.counts_from_cleaned(cleaned)
 
     eox, ered = vec.extinction(sub)
     prop_arrays: dict[str, np.ndarray] = {
@@ -197,7 +203,7 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
         "pi_peptide": vec.isoelectric_point(sub, IPC2_PEPTIDE, include_cys=True),
         "eox_peptide": eox,
         "ered_peptide": ered,
-        "instability_peptide": vec.instability_index(seqs),
+        "instability_peptide": vec.instability_from_cleaned(cleaned),
         "aliphatic_peptide": vec.aliphatic_index(sub),
         "aromaticity_peptide": vec.aromaticity(sub),
     }
@@ -210,19 +216,27 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
 
     # AA-fraction long frame from the (N, 20) mole-fraction matrix: 20 rows per
     # entity (one per STANDARD_AAS), value NaN -> null for invalid entities so
-    # the 2-axis PColumn keeps a uniform shape across entities. The long-format
-    # entity axis needs Python-level repetition, so materialize keys here.
+    # the 2-axis PColumn keeps a uniform shape across entities.
+    #
+    # Built polars-native: a wide frame (entity_key + one Float64 column per
+    # standard AA, in STANDARD_AAS order) is unpivoted to the long
+    # (entity_key, aminoAcid, value) contract. This replaces the old
+    # `[k for k in keys for _ in STANDARD_AAS]` construction, which materialized
+    # two 20*N-element Python lists — the dominant peptide-mode memory transient —
+    # and lets polars parallelize the reshape. The unpivot's row order differs
+    # from the old row-major flatten, but write_output_tsv sorts by
+    # (entity_key, aminoAcid), so the emitted bytes are unchanged. Column slices
+    # are made contiguous so the pl.Series build never hits a strided-array path.
     fractions = vec.aa_fractions(sub)  # (N, 20), NaN for invalid rows
-    keys = key_series.to_list()
-    aa_entity = [k for k in keys for _ in STANDARD_AAS]
-    aa_amino = list(STANDARD_AAS) * n
-    aa_value = fractions.reshape(-1)  # row-major: entity 0's 20 AAs, then entity 1's, ...
-    aa_fraction = pl.DataFrame(
-        {
-            "entity_key": pl.Series(values=aa_entity, dtype=pl.Utf8),
-            "aminoAcid": pl.Series(values=aa_amino, dtype=pl.Utf8),
-            "value": _na_to_null(aa_value),
-        }
+    wide = pl.DataFrame(
+        {"entity_key": key_series}
+        | {aa: _na_to_null(np.ascontiguousarray(fractions[:, i])) for i, aa in enumerate(STANDARD_AAS)}
+    )
+    aa_fraction = wide.unpivot(
+        index="entity_key",
+        on=list(STANDARD_AAS),
+        variable_name="aminoAcid",
+        value_name="value",
     )
     # Quantize at the output boundary like the property columns, through the
     # shared CID-stability helper. aaFraction displays as .3f; round to 5 dp (one

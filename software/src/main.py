@@ -11,11 +11,31 @@ from __future__ import annotations
 
 import os
 
-# Pin the polars thread pool to 1 BEFORE polars (or anything importing it,
-# including `pipeline`) is loaded — POLARS_MAX_THREADS is read once at import.
-# The block reserves cpu(1), and single-threaded execution keeps output
-# byte-stable (no thread-count-dependent reduction order). setdefault so an
-# explicit override from the environment still wins.
+# Thread configuration MUST be set before numpy / polars are imported — both
+# read their thread-pool size once, at import time.
+#
+# BLAS / OpenMP intra-op threads -> 1 (forced). The vectorized engine's only
+# order-sensitive step is the `counts @ weights` matvec (vectorized.py): if a
+# single dot-product reduction is split across threads, the float summation
+# order — and therefore the emitted TSV bytes and the resource CID — becomes
+# thread-count dependent. Pinning every BLAS backend to one intra-op thread
+# keeps that reduction bit-identical. This is the load-bearing half of the
+# determinism contract, so it is forced, not setdefault.
+for _thread_var in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+):
+    os.environ[_thread_var] = "1"
+
+# Polars parallelism is safe to scale across cores: every polars op the pipeline
+# uses (CSV read, concat_str chain reconstruction, the aa_fraction explode, the
+# unique-key output sort, CSV write) is deterministic regardless of thread count
+# — none is a cross-row float reduction, and the sorts are total orders on unique
+# keys. The workflow sets POLARS_MAX_THREADS to match its cpu(N) request;
+# setdefault to 1 keeps local / test runs single-threaded unless they opt in.
 os.environ.setdefault("POLARS_MAX_THREADS", "1")
 
 import argparse
@@ -42,6 +62,10 @@ def _configure_logging() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     _configure_logging()
+    logging.getLogger(__name__).info(
+        "thread config: POLARS_MAX_THREADS=%s, BLAS intra-op threads pinned to 1",
+        os.environ["POLARS_MAX_THREADS"],
+    )
     parser = argparse.ArgumentParser(prog="compute-properties")
     parser.add_argument("--input", required=True, help="path to input entity TSV")
     parser.add_argument("--plan", required=True, help="path to plan JSON")

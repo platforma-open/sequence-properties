@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -53,8 +55,19 @@ def _run_cli_subprocess(
     out_tsv: Path,
     aa_tsv: Path,
     stats_json: Path,
+    polars_threads: int | None = None,
 ) -> None:
-    """Invoke main.py in a fresh subprocess. Independent hash seed per call."""
+    """Invoke main.py in a fresh subprocess. Independent hash seed per call.
+
+    `polars_threads`, when given, sets POLARS_MAX_THREADS for this run so callers
+    can prove the output is invariant to the polars thread-pool size. main.py
+    pins the BLAS intra-op threads to 1 regardless of environment, so the only
+    concurrency that varies across runs is the polars parallelism — exactly the
+    knob the workflow raises via cpu(N).
+    """
+    env = None
+    if polars_threads is not None:
+        env = {**os.environ, "POLARS_MAX_THREADS": str(polars_threads)}
     result = subprocess.run(
         [
             sys.executable,
@@ -73,6 +86,7 @@ def _run_cli_subprocess(
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     assert result.returncode == 0, f"main.py failed (rc={result.returncode}); stderr=\n{result.stderr}"
 
@@ -169,6 +183,9 @@ _ANTIBODY_PLAN: dict[str, object] = {
 # Two subprocess runs on the same input must produce byte-identical output
 # files. Catches future hash-order regressions (Polars group_by, set() iter,
 # etc.) that pass in-process tests but break across separate worker processes.
+# The two runs also use DIFFERENT polars thread-pool sizes (1 vs 4): the output
+# must be invariant to the core count the workflow allocates via cpu(N), not just
+# to the process hash seed.
 @pytest.mark.parametrize(
     "rows, columns, plan",
     [
@@ -191,7 +208,36 @@ def test_outputs_byte_stable_across_subprocess_runs(
     a = _run_paths(tmp_path, "_a")
     b = _run_paths(tmp_path, "_b")
 
-    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, **a)
-    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, **b)
+    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, polars_threads=1, **a)
+    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, polars_threads=4, **b)
+
+    _assert_all_three_byte_identical(a, b)
+
+
+# Scale test: a few thousand peptides is enough for polars to actually engage its
+# thread pool. Tiny inputs (the case above) run effectively single-threaded
+# regardless of POLARS_MAX_THREADS, so they prove the contract but not that
+# threads were exercised. Running the SAME generated input at 1 vs 4 threads and
+# asserting byte-identical output proves the reshape / sort / write parallelism
+# is order-stable at scale. Peptide mode is chosen because its aa_fraction
+# long-format (now a polars unpivot) is the most thread-sensitive new path.
+@pytest.mark.slow
+def test_peptide_output_invariant_to_thread_count_at_scale(tmp_path: Path) -> None:
+    rng = random.Random(0)
+    aas = "ACDEFGHIKLMNPQRSTVWY"
+    rows = [
+        {"entity_key": f"p{i}", "sequence": "".join(rng.choice(aas) for _ in range(rng.randint(5, 30)))}
+        for i in range(3000)
+    ]
+    in_tsv = tmp_path / "input.tsv"
+    plan_json = tmp_path / "plan.json"
+    _write_tsv(in_tsv, rows, _PEPTIDE_COLUMNS)
+    plan_json.write_text(json.dumps(_PEPTIDE_PLAN))
+
+    a = _run_paths(tmp_path, "_t1")
+    b = _run_paths(tmp_path, "_t4")
+
+    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, polars_threads=1, **a)
+    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, polars_threads=4, **b)
 
     _assert_all_three_byte_identical(a, b)
