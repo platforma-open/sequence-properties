@@ -224,15 +224,15 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
     # entity (one per STANDARD_AAS), value NaN -> null for invalid entities so
     # the 2-axis PColumn keeps a uniform shape across entities.
     #
-    # Built polars-native: a wide frame (entity_key + one Float64 column per
-    # standard AA, in STANDARD_AAS order) is unpivoted to the long
+    # Built polars-native: assemble a wide frame (entity_key + one Float64 column
+    # per standard AA, in STANDARD_AAS order), then unpivot to the long
     # (entity_key, aminoAcid, value) contract. This replaces the old
     # `[k for k in keys for _ in STANDARD_AAS]` construction, which materialized
     # two 20*N-element Python lists — the dominant peptide-mode memory transient —
-    # and lets polars parallelize the reshape. The unpivot's row order differs
-    # from the old row-major flatten, but write_output_tsv sorts by
-    # (entity_key, aminoAcid), so the emitted bytes are unchanged. Column slices
-    # are made contiguous so the pl.Series build never hits a strided-array path.
+    # and lets polars parallelize the reshape. The unpivot reorders the rows, but
+    # write_output_tsv sorts by (entity_key, aminoAcid), so the emitted bytes are
+    # unchanged. np.ascontiguousarray keeps each column slice contiguous, so the
+    # pl.Series build never hits a strided-array path.
     fractions = vec.aa_fractions(sub)  # (N, 20), NaN for invalid rows
     wide = pl.DataFrame(
         {"entity_key": key_series}

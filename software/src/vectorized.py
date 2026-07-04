@@ -477,8 +477,8 @@ _PARALLEL_MIN_ROWS = 50_000
 
 def _n_workers() -> int:
     """Row-parallel worker count = the allocated core count. The workflow sets
-    POLARS_MAX_THREADS to its cpu() request, so this stays in lockstep with the
-    quota; defaults to 1 (serial) for local / test runs."""
+    POLARS_MAX_THREADS to the cores the backend grants, so this stays in lockstep
+    with the CPU quota; defaults to 1 (serial) for local / test runs."""
     try:
         return max(1, int(os.environ.get("POLARS_MAX_THREADS", "1")))
     except ValueError:
