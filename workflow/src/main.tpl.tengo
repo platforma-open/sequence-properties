@@ -384,19 +384,28 @@ wf.body(func(args) {
 	// median CDR-H3 length per chain).
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
 	f := exec.formula
-	// Resources scale with clone count instead of a flat allocation:
-	// lineCount("input.tsv") ≈ clones (header + one row per clone). The per-row
-	// memory constant is calibrated from measured peak RSS (peptide ~3.0 KiB/row,
-	// antibody ~4.3 KiB/row); thread count barely moves peak RSS (measured
-	// +<0.1GiB at 8 threads), so the mem formula needs no thread headroom.
+	// Memory scales with the input instead of a flat allocation, as the max of two
+	// terms (each calibrated from measured peak RSS):
+	//   * row-scaled — lineCount("input.tsv") * per-row bytes. Covers the per-clone
+	//     structures (count matrix, output columns, aa_fraction). Measured peptide
+	//     ~3.0 KiB/row, antibody ~4.3 KiB/row; kib(5)/kib(8) carry the headroom.
+	//   * residue-scaled — size("input.tsv") * 64. Peak RSS from the cleaning
+	//     transients (the DIWV weight gather, residue-row ids, byte buffers) is
+	//     O(total residues), and input bytes ≈ total residues, so this term covers
+	//     long sequences that lineCount alone misses (measured ~40 B RSS per input
+	//     byte; 64x adds headroom). WITHOUT it, a low-row/long-sequence input (few
+	//     amplicon variants, long sequences) sizes to the 2 GiB floor and OOMs
+	//     where the old flat 12 GiB survived.
+	// max() lets each term dominate in its own regime (short-seq -> row term;
+	// long-seq -> residue term) without double-counting. Thread count barely moves
+	// peak RSS (+<0.1GiB at 8 threads), so no thread headroom is needed.
 	//
-	// Both modes now parallelize on the compute engine — peptide ~1.7x and
-	// antibody ~1.5x on 4 cores — since the pI bisection is row-parallel and the
-	// CDR3-length stat is vectorized; CPU scales up to 4 with dataset size, small
-	// inputs get 1 core. main.py pins BLAS to one intra-op thread, so output is
-	// byte-identical regardless of the core count. The memFormula fallback is the
-	// previous static 12GiB, used on backends that cannot evaluate formulas (no
-	// getBlobSize).
+	// Both modes parallelize on the compute engine (peptide ~1.7x, antibody ~1.5x
+	// on 4 cores: row-parallel pI bisection + vectorized CDR3-length stat), so CPU
+	// scales up to 4 with dataset size; small inputs get 1 core. main.py pins BLAS
+	// to one intra-op thread, so output is byte-identical regardless of core count.
+	// The memFormula fallback is the previous static 12GiB, for backends that
+	// cannot evaluate formulas (no getBlobSize).
 	memPerRow := f.kib(8)   // antibody / TCR — heavier per row (2 chains + ~30 cols)
 	if wholeSeqMode {
 		memPerRow = f.kib(5)   // peptide / amplicon
@@ -404,7 +413,7 @@ wf.body(func(args) {
 	computeCpu := 4
 	execBuilder := exec.builder().
 		software(soft).
-		memFormula(f.clamp(f.mul(f.lineCount(), memPerRow), f.gib(2), f.gib(64)), { fallback: "12GiB" }).
+		memFormula(f.clamp(f.max(f.mul(f.lineCount(), memPerRow), f.mul(f.size(), 64)), f.gib(2), f.gib(64)), { fallback: "12GiB" }).
 		cpu(computeCpu).
 		env("POLARS_MAX_THREADS", string(computeCpu)).
 		// Reserve ~1 core per 250k rows, capped at computeCpu; small inputs free
