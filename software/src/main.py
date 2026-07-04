@@ -34,8 +34,11 @@ for _thread_var in (
 # uses (CSV read, concat_str chain reconstruction, the aa_fraction explode, the
 # unique-key output sort, CSV write) is deterministic regardless of thread count
 # — none is a cross-row float reduction, and the sorts are total orders on unique
-# keys. The workflow sets POLARS_MAX_THREADS to match its cpu(N) request;
-# setdefault to 1 keeps local / test runs single-threaded unless they opt in.
+# keys. This value also sizes the numpy pI-bisection worker pool (see
+# vectorized._n_workers). The workflow sets POLARS_MAX_THREADS to the cores the
+# backend actually grants (the {system.cpu} command expression = the resolved
+# cpuFormula value); setdefault to 1 keeps local / test runs single-threaded
+# unless they opt in.
 os.environ.setdefault("POLARS_MAX_THREADS", "1")
 
 import argparse

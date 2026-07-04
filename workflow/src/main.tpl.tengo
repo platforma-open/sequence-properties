@@ -17,6 +17,7 @@ pSpec := import("@platforma-sdk/workflow-tengo:pframes.spec")
 canonical := import("@platforma-sdk/workflow-tengo:canonical")
 maps := import("@platforma-sdk/workflow-tengo:maps")
 constants := import("@platforma-sdk/workflow-tengo:constants")
+feats := import("@platforma-sdk/workflow-tengo:feats")
 messages := import(":messages")
 columnSpecs := import(":columns")
 
@@ -415,12 +416,21 @@ wf.body(func(args) {
 		software(soft).
 		memFormula(f.clamp(f.max(f.mul(f.lineCount(), memPerRow), f.mul(f.size(), 64)), f.gib(2), f.gib(64)), { fallback: "12GiB" }).
 		cpu(computeCpu).
-		env("POLARS_MAX_THREADS", string(computeCpu)).
 		// Reserve ~1 core per 250k rows, capped at computeCpu; small inputs free
-		// cluster capacity. polars is capped at POLARS_MAX_THREADS=computeCpu, so
-		// a sub-cap input may briefly oversubscribe threads — harmless for the
-		// small/fast runs that get fewer cores.
+		// cluster capacity.
 		cpuFormula(f.clamp(f.divCeil(f.lineCount(), 250000), 1, computeCpu))
+	// POLARS_MAX_THREADS sizes BOTH the polars pool and the numpy pI-bisection worker
+	// count (vectorized._n_workers reads it), so it must equal the cores the cpuFormula
+	// actually GRANTS — not the static cap. Otherwise a sub-cap input (e.g. 1 core
+	// granted) would still spawn computeCpu threads and oversubscribe its quota. On
+	// backends with command expressions, {system.cpu} resolves at run time to the
+	// granted core count (the backend substitutes it before the process starts, so
+	// main.py reads the final integer); older backends fall back to the static cap.
+	if feats.commandExpressions {
+		execBuilder = execBuilder.envExpr("POLARS_MAX_THREADS", "{system.cpu}")
+	} else {
+		execBuilder = execBuilder.env("POLARS_MAX_THREADS", string(computeCpu))
+	}
 	pyRun := execBuilder.
 		addFile("input.tsv", seqTable).
 		writeFile("plan.json", canonical.encode(plan)).
