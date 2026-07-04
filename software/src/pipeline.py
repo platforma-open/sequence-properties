@@ -33,6 +33,12 @@ log = logging.getLogger(__name__)
 
 PH = 7.0  # All charge values computed at pH 7 (spec default).
 
+# Regex character class matching a standard residue (either case), derived from
+# the single source of truth STANDARD_AAS so it cannot drift from
+# properties.effective_length / the count substrate. STANDARD_AAS is all letters,
+# so it needs no regex escaping.
+_STANDARD_AA_CLASS = "[" + STANDARD_AAS + STANDARD_AAS.lower() + "]"
+
 
 # ---------------------------------------------------------------------------
 # CID quantization
@@ -328,7 +334,7 @@ def _median_cdr3_length_by_chain(reads: pl.DataFrame, chains: list[str]) -> dict
             reads.select(
                 pl.col(col)
                 .filter(pl.col(col).is_not_null() & (pl.col(col) != ""))
-                .str.count_matches("[ACDEFGHIKLMNPQRSTVWYacdefghiklmnpqrstvwy]")
+                .str.count_matches(_STANDARD_AA_CLASS)
             )
             .to_series()
             .to_list()
