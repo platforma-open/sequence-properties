@@ -346,23 +346,33 @@ def aa_fractions(sub: Substrate) -> np.ndarray:
 # --------------------------------------------------------------------------- #
 
 
-def _charge_raw(sub: Substrate, ph: float, pka_set: PKaSet, include_cys: bool) -> np.ndarray:
+def _charge_raw(
+    sub: Substrate, ph: float, pka_set: PKaSet, include_cys: bool, ten_ph: np.ndarray | None = None
+) -> np.ndarray:
     """Vectorized BioPython charge_at_pH over ALL rows — finite for every row,
     invalid rows are NOT masked here. The public wrappers apply NaN via _mask.
 
-    Kept finite-for-all-rows on purpose: the pI bisection (Task 8) reuses this
-    over the same count matrix and needs a clean charge value per row.
+    Kept finite-for-all-rows on purpose: the pI bisection reuses this over the
+    same count matrix and needs a clean charge value per row.
 
     Computes 10**ph ONCE and reuses it for every pKa term via a scalar factor
     (10**(ph-pk) = 10**ph * 10**(-pk); 10**(pk-ph) = 10**pk / 10**ph) instead of a
     separate 10**(ph±pk) per amino acid. `ph` is an (N,) array during the pI
     bisection, so this replaces ~7 array-wide transcendentals with one (~2.4x
-    faster on the charge path). The FP drift vs the per-AA form is ~1e-15 — far
-    below the 3-dp charge/pI quantization and the 1e-6 parity tolerance, so
-    emitted bytes (and the CID) are unchanged.
+    faster on the charge path). Callers that evaluate charge for two substrates at
+    the SAME `ph` (the Fv pI path) can precompute `10**ph` once and pass it as
+    `ten_ph`, sharing that array transcendental across both chains.
+
+    The FP drift vs the per-AA form is ~1e-15 — below the 1e-6 parity tolerance
+    and the 3-dp charge/pI quantization, so the output is unchanged within the
+    quantized-equal contract (verified byte-identical against the pre-change
+    engine on the test corpus). The one theoretical exception is a bisection
+    midpoint whose net charge lands within ~1e-15 of zero, which could flip a
+    branch — astronomically rare and never observed.
     """
     c = sub.counts
-    ten_ph = 10.0**ph  # single transcendental; ph may be scalar or (N,)
+    if ten_ph is None:
+        ten_ph = 10.0**ph  # single transcendental; ph may be scalar or (N,)
     # One N-terminus per sequence (count = 1), basic side chains K/R/H.
     pos = 1.0 / (ten_ph * (10.0 ** (-pka_set.n_terminus)) + 1.0)
     for aa in ("K", "R", "H"):
@@ -551,7 +561,14 @@ def fv_isoelectric_point(
     def make(a: int, b: int):
         vh = Substrate(counts=sub_vh.counts[a:b], length=sub_vh.length[a:b], valid=sub_vh.valid[a:b])
         vl = Substrate(counts=sub_vl.counts[a:b], length=sub_vl.length[a:b], valid=sub_vl.valid[a:b])
-        return lambda ph: _charge_raw(vh, ph, pka_set, include_cys) + _charge_raw(vl, ph, pka_set, include_cys)
+
+        def charge_sum(ph):
+            # Both chains share the same ph, so compute the (N,) 10**ph transcendental
+            # once and pass it to both instead of recomputing it in each _charge_raw.
+            ten_ph = 10.0**ph
+            return _charge_raw(vh, ph, pka_set, include_cys, ten_ph) + _charge_raw(vl, ph, pka_set, include_cys, ten_ph)
+
+        return charge_sum
 
     return _bisect_rows_parallel(make, valid, lo=lo, hi=hi, tol=tol)
 
