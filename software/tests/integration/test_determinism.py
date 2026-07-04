@@ -241,3 +241,40 @@ def test_peptide_output_invariant_to_thread_count_at_scale(tmp_path: Path) -> No
     _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, polars_threads=4, **b)
 
     _assert_all_three_byte_identical(a, b)
+
+
+# Scale test #2: the pI bisection runs row-parallel only at or above
+# vectorized._PARALLEL_MIN_ROWS (smaller inputs bisect serially), so the cases
+# above — under that threshold — never exercise it. This case crosses it and uses
+# antibody mode, which drives BOTH parallelized bisections: isoelectric_point
+# (full chains) and fv_isoelectric_point (Fv). Byte-identical output at 1 vs 4
+# threads proves the row-chunked bisection is independent of the worker count.
+# The row count is derived from the threshold so raising it can't silently drop
+# this coverage back to the serial path.
+@pytest.mark.slow
+def test_antibody_bisection_invariant_to_thread_count_at_scale(tmp_path: Path) -> None:
+    from vectorized import _PARALLEL_MIN_ROWS
+
+    rng = random.Random(0)
+    aas = "ACDEFGHIKLMNPQRSTVWY"
+    regions = ("FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4")
+    rows: list[dict[str, str]] = []
+    for i in range(_PARALLEL_MIN_ROWS + 10_000):
+        row = {"entity_key": f"c{i}"}
+        for ch in ("A", "B"):
+            for r in regions:
+                row[f"{ch}_{r}"] = "".join(rng.choice(aas) for _ in range(rng.randint(5, 14)))
+        rows.append(row)
+
+    in_tsv = tmp_path / "input.tsv"
+    plan_json = tmp_path / "plan.json"
+    _write_tsv(in_tsv, rows, _ANTIBODY_COLUMNS)
+    plan_json.write_text(json.dumps(_ANTIBODY_PLAN))
+
+    a = _run_paths(tmp_path, "_ab1")
+    b = _run_paths(tmp_path, "_ab4")
+
+    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, polars_threads=1, **a)
+    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, polars_threads=4, **b)
+
+    _assert_all_three_byte_identical(a, b)

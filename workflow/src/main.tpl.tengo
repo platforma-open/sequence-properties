@@ -385,37 +385,33 @@ wf.body(func(args) {
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
 	f := exec.formula
 	// Resources scale with clone count instead of a flat allocation:
-	// lineCount("input.tsv") ≈ clones (header + one row per clone). Constants are
-	// calibrated from measured peak RSS + thread scaling on this engine:
-	//   * peptide / amplicon: ~3.0 KiB/row; ~54% of the work is polars, so wall
-	//     time drops ~1.7x on 4 cores — it scales CPU up to 4.
-	//   * antibody / TCR: ~4.3 KiB/row; wall time is dominated by the single-
-	//     threaded numpy path (~1.1x even on 8 cores), so it stays on one core.
-	// Thread count barely moves peak RSS (measured +<0.1GiB at 8 threads), so the
-	// mem formula needs no thread headroom. main.py pins BLAS to one intra-op
-	// thread, so output is byte-identical regardless of the core count. The
-	// memFormula fallback is the previous static 12GiB, used on backends that
-	// cannot evaluate formulas (no getBlobSize).
-	memPerRow := f.kib(8)   // antibody / TCR (2 chains + ~30 output columns)
-	computeCpu := 1
-	scaleCpu := false
+	// lineCount("input.tsv") ≈ clones (header + one row per clone). The per-row
+	// memory constant is calibrated from measured peak RSS (peptide ~3.0 KiB/row,
+	// antibody ~4.3 KiB/row); thread count barely moves peak RSS (measured
+	// +<0.1GiB at 8 threads), so the mem formula needs no thread headroom.
+	//
+	// Both modes now parallelize on the compute engine — peptide ~1.7x and
+	// antibody ~1.5x on 4 cores — since the pI bisection is row-parallel and the
+	// CDR3-length stat is vectorized; CPU scales up to 4 with dataset size, small
+	// inputs get 1 core. main.py pins BLAS to one intra-op thread, so output is
+	// byte-identical regardless of the core count. The memFormula fallback is the
+	// previous static 12GiB, used on backends that cannot evaluate formulas (no
+	// getBlobSize).
+	memPerRow := f.kib(8)   // antibody / TCR — heavier per row (2 chains + ~30 cols)
 	if wholeSeqMode {
 		memPerRow = f.kib(5)   // peptide / amplicon
-		computeCpu = 4
-		scaleCpu = true
 	}
+	computeCpu := 4
 	execBuilder := exec.builder().
 		software(soft).
 		memFormula(f.clamp(f.mul(f.lineCount(), memPerRow), f.gib(2), f.gib(64)), { fallback: "12GiB" }).
 		cpu(computeCpu).
-		env("POLARS_MAX_THREADS", string(computeCpu))
-	if scaleCpu {
+		env("POLARS_MAX_THREADS", string(computeCpu)).
 		// Reserve ~1 core per 250k rows, capped at computeCpu; small inputs free
 		// cluster capacity. polars is capped at POLARS_MAX_THREADS=computeCpu, so
 		// a sub-cap input may briefly oversubscribe threads — harmless for the
 		// small/fast runs that get fewer cores.
-		execBuilder = execBuilder.cpuFormula(f.clamp(f.divCeil(f.lineCount(), 250000), 1, computeCpu))
-	}
+		cpuFormula(f.clamp(f.divCeil(f.lineCount(), 250000), 1, computeCpu))
 	pyRun := execBuilder.
 		addFile("input.tsv", seqTable).
 		writeFile("plan.json", canonical.encode(plan)).

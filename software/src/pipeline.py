@@ -318,7 +318,21 @@ def _median_cdr3_length_by_chain(reads: pl.DataFrame, chains: list[str]) -> dict
         col = f"{ch}_CDR3"
         if col not in reads.columns:
             continue
-        lengths = [effective_length(s) for s in reads[col].to_list() if s]
+        # Effective length = count of standard-AA characters (case-insensitive),
+        # matching properties.effective_length, computed vectorized in polars over
+        # the whole column instead of one Python call per row (the dominant
+        # antibody-mode stats cost). Only non-empty CDR3 cells count (`if s` in the
+        # scalar form drops null and ""). The median formula below is unchanged, so
+        # the emitted stat is byte-identical.
+        lengths = (
+            reads.select(
+                pl.col(col)
+                .filter(pl.col(col).is_not_null() & (pl.col(col) != ""))
+                .str.count_matches("[ACDEFGHIKLMNPQRSTVWYacdefghiklmnpqrstvwy]")
+            )
+            .to_series()
+            .to_list()
+        )
         if not lengths:
             continue
         lengths.sort()
