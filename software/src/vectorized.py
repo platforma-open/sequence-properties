@@ -5,6 +5,8 @@ Single-threaded by construction (pure numpy elementwise + per-seq counting)."""
 from __future__ import annotations
 
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import numpy as np
@@ -460,6 +462,46 @@ def _bisect_charge_zero_vec(
     return pi
 
 
+_PARALLEL_MIN_ROWS = 50_000
+
+
+def _n_workers() -> int:
+    """Row-parallel worker count = the allocated core count. The workflow sets
+    POLARS_MAX_THREADS to its cpu() request, so this stays in lockstep with the
+    quota; defaults to 1 (serial) for local / test runs."""
+    try:
+        return max(1, int(os.environ.get("POLARS_MAX_THREADS", "1")))
+    except ValueError:
+        return 1
+
+
+def _bisect_rows_parallel(make_charge_fn, valid, lo=0.0, hi=14.0, tol=1e-3):
+    """Row-parallel wrapper around `_bisect_charge_zero_vec`.
+
+    `make_charge_fn(a, b)` returns a charge function bound to rows [a, b). Rows
+    are split into contiguous, data-independent blocks and bisected on separate
+    threads (numpy's elementwise pow / where release the GIL), then concatenated
+    in row order. Each row's bisection depends only on that row's own counts, so
+    the result is bit-identical to the serial path regardless of the block
+    count — the byte-stability contract holds independent of worker count. Small
+    inputs run serial to avoid thread-dispatch overhead.
+    """
+    n = len(valid)
+    workers = _n_workers()
+    if workers <= 1 or n < _PARALLEL_MIN_ROWS:
+        return _bisect_charge_zero_vec(make_charge_fn(0, n), valid, lo=lo, hi=hi, tol=tol)
+    edges = [(n * i) // workers for i in range(workers + 1)]
+    blocks = [(edges[i], edges[i + 1]) for i in range(workers) if edges[i] < edges[i + 1]]
+
+    def run_block(ab):
+        a, b = ab
+        return _bisect_charge_zero_vec(make_charge_fn(a, b), valid[a:b], lo=lo, hi=hi, tol=tol)
+
+    with ThreadPoolExecutor(max_workers=len(blocks)) as ex:
+        parts = list(ex.map(run_block, blocks))
+    return np.concatenate(parts)
+
+
 def isoelectric_point(
     sub: Substrate,
     pka_set: PKaSet,
@@ -468,20 +510,19 @@ def isoelectric_point(
     hi: float = 14.0,
     tol: float = 1e-3,
 ) -> np.ndarray:
-    """Vectorized pI: lockstep fixed-iteration bisection of `_charge_raw` over
-    all rows, bit-identical to the scalar `properties.isoelectric_point`.
+    """Vectorized pI: lockstep fixed-iteration bisection of `_charge_raw`,
+    bit-identical to the scalar `properties.isoelectric_point`.
 
-    Delegates the bisection to `_bisect_charge_zero_vec`; `_charge_raw` is
-    bit-identical to the scalar charge (charge parity = 0.0), so the pI is
-    bit-identical to the scalar pI for every valid sequence.
+    Row-parallel across `_n_workers()` threads (see `_bisect_rows_parallel`); the
+    per-row bisection is unchanged, so the pI is bit-identical to the scalar pI
+    for every valid sequence and independent of the worker count.
     """
-    return _bisect_charge_zero_vec(
-        lambda ph: _charge_raw(sub, ph, pka_set, include_cys),
-        sub.valid,
-        lo=lo,
-        hi=hi,
-        tol=tol,
-    )
+
+    def make(a: int, b: int):
+        block = Substrate(counts=sub.counts[a:b], length=sub.length[a:b], valid=sub.valid[a:b])
+        return lambda ph: _charge_raw(block, ph, pka_set, include_cys)
+
+    return _bisect_rows_parallel(make, sub.valid, lo=lo, hi=hi, tol=tol)
 
 
 def fv_isoelectric_point(
@@ -506,13 +547,13 @@ def fv_isoelectric_point(
     Returns float64, NaN where either chain is invalid or no zero crossing.
     """
     valid = sub_vh.valid & sub_vl.valid
-    return _bisect_charge_zero_vec(
-        lambda ph: _charge_raw(sub_vh, ph, pka_set, include_cys) + _charge_raw(sub_vl, ph, pka_set, include_cys),
-        valid,
-        lo=lo,
-        hi=hi,
-        tol=tol,
-    )
+
+    def make(a: int, b: int):
+        vh = Substrate(counts=sub_vh.counts[a:b], length=sub_vh.length[a:b], valid=sub_vh.valid[a:b])
+        vl = Substrate(counts=sub_vl.counts[a:b], length=sub_vl.length[a:b], valid=sub_vl.valid[a:b])
+        return lambda ph: _charge_raw(vh, ph, pka_set, include_cys) + _charge_raw(vl, ph, pka_set, include_cys)
+
+    return _bisect_rows_parallel(make, valid, lo=lo, hi=hi, tol=tol)
 
 
 # --------------------------------------------------------------------------- #
