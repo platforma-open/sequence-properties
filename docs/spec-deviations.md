@@ -644,9 +644,26 @@ dead end for this input. `messages.receptorNotDeclared` states what the labels
 defaulted to and that only labels are affected; `receptorNotDetected` keeps its
 original text for MiXCR inputs, where the advice is actionable.
 
-Per spec R13a the receptor affects labels only — PColumn name and chain domain
-are unchanged — so defaulting to the antibody convention mislabels but does not
-change column identity.
+Receptor is not label-only, so what the IG default costs is worth stating
+precisely. Per spec R13a it does not change column identity: `labelFragments`
+varies the label annotation (CDR-H3/VH vs CDR-α3/Vα vs CDR-γ3/Vγ) while the
+PColumn name and the `pl7.app/vdj/scClonotypeChain` domain stay the same, and
+the Python step only logs `plan.receptor`. But two decisions do read it:
+
+- **`hasFv`** (`main.tpl.tengo`) requires `receptor == "IG"`, and so gates
+  whether the Fv columns exist at all. Not reached here — it also requires full
+  coverage on both `A` and `B`, and the profiler emits one chain — so the IG
+  default costs nothing on this path. It would matter for any producer that
+  emitted paired chains without a receptor.
+- **The R11c VHH heuristic** (`info.tpl.tengo`) fires on
+  `receptor == "IG"` + exactly one CDR3-bearing chain `A` + median CDR3 ≥ 16 aa.
+  A declared `vdj` profiler run satisfies the first two by construction, so a
+  library with long CDR3s is told it looks like a VHH/single-domain antibody.
+  Here "heavy chain only" is an artifact of the profiler emitting no chain key
+  at all, not evidence of a single-domain antibody — a false positive left
+  open deliberately rather than fixed blind, since narrowing R11c is a product
+  call about what the heuristic is for. Open question, not settled by this
+  deviation.
 
 ### Extraction
 
