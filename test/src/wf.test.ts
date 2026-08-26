@@ -35,7 +35,7 @@ import type { platforma } from "@platforma-open/milaboratories.sequence-properti
 import type { InferBlockState } from "@platforma-sdk/model";
 import { wrapOutputs } from "@platforma-sdk/model";
 import { awaitStableState, blockTest } from "@platforma-sdk/test";
-import { blockSpec as seqPropsBlockSpec } from "this-block";
+import { SequencePropertiesBlockPointer } from "this-block";
 import { describe, it } from "vitest";
 
 // ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ import { describe, it } from "vitest";
 // argsValid === false / no run. This is the universal smoke test —
 // confirms test scaffolding + backend connection + dev-block load all work.
 blockTest("empty inputs", { timeout: 30000 }, async ({ rawPrj, expect }) => {
-  const blockId = await rawPrj.addBlock("Sequence Properties", seqPropsBlockSpec);
+  const blockId = await rawPrj.addBlock("Sequence Properties", SequencePropertiesBlockPointer);
   const stableState = (await awaitStableState(
     rawPrj.getBlockState(blockId),
     20000,
