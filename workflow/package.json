@@ -1,12 +1,14 @@
 {
   "name": "@platforma-open/milaboratories.sequence-properties.workflow",
   "version": "1.3.3",
+  "private": true,
   "description": "Block Workflow",
   "type": "module",
   "scripts": {
-    "build": "shx rm -rf dist && pl-tengo check && pl-tengo build",
-    "test": "vitest",
-    "format": "/usr/bin/env emacs --script ./format.el"
+    "build": "shx rm -rf dist && pl-tengo build",
+    "test": "vitest run --passWithNoTests",
+    "format": "/usr/bin/env emacs --script ./format.el || echo 'No emacs.'",
+    "check": "pl-tengo check"
   },
   "dependencies": {
     "@platforma-open/milaboratories.sequence-properties.software": "workspace:*",
@@ -14,9 +16,9 @@
   },
   "devDependencies": {
     "@platforma-sdk/tengo-builder": "catalog:",
-    "@platforma-sdk/test": "catalog:"
+    "@platforma-sdk/test": "catalog:",
+    "shx": "catalog:",
+    "vitest": "catalog:"
   },
-  "peerDependencies": {
-    "vitest": "*"
-  }
+  "peerDependencies": {}
 }

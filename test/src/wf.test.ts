@@ -25,12 +25,18 @@
  * @platforma-open/milaboratories.sequence-properties.test test`
  */
 
-import type { platforma } from '@platforma-open/milaboratories.sequence-properties.model';
-import type { InferBlockState } from '@platforma-sdk/model';
-import { wrapOutputs } from '@platforma-sdk/model';
-import { awaitStableState, blockTest } from '@platforma-sdk/test';
-import { blockSpec as seqPropsBlockSpec } from 'this-block';
-import { describe, it } from 'vitest';
+// The unimplemented scenarios below are kept as `it.todo` on purpose: each one
+// carries the spec rule it will assert, so the gap stays visible in the suite
+// rather than only in a comment. oxlint's vitest(warn-todo) rule wants them
+// gone, and the test scope runs with --deny-warnings.
+/* oxlint-disable vitest/warn-todo */
+
+import type { platforma } from "@platforma-open/milaboratories.sequence-properties.model";
+import type { InferBlockState } from "@platforma-sdk/model";
+import { wrapOutputs } from "@platforma-sdk/model";
+import { awaitStableState, blockTest } from "@platforma-sdk/test";
+import { blockSpec as seqPropsBlockSpec } from "this-block";
+import { describe, it } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Cheap idle-state smoke (model + UI baseline)
@@ -41,8 +47,8 @@ import { describe, it } from 'vitest';
 // throws on missing inputAnchor (caught by the runtime) — observable as
 // argsValid === false / no run. This is the universal smoke test —
 // confirms test scaffolding + backend connection + dev-block load all work.
-blockTest('empty inputs', { timeout: 30000 }, async ({ rawPrj, expect }) => {
-  const blockId = await rawPrj.addBlock('Sequence Properties', seqPropsBlockSpec);
+blockTest("empty inputs", { timeout: 30000 }, async ({ rawPrj, expect }) => {
+  const blockId = await rawPrj.addBlock("Sequence Properties", seqPropsBlockSpec);
   const stableState = (await awaitStableState(
     rawPrj.getBlockState(blockId),
     20000,
@@ -61,13 +67,13 @@ blockTest('empty inputs', { timeout: 30000 }, async ({ rawPrj, expect }) => {
 // Modality detection (R1, R1a, R1b)
 // ---------------------------------------------------------------------------
 
-describe('modality detection', () => {
-  it.todo('detects peptide mode from variantKey + extractionRunId domain'); // R1, peptideScenario
-  it.todo('detects antibody/TCR single-cell from vdj/scClonotypeKey axis'); // R1, scIgFullScenario
-  it.todo('detects antibody/TCR legacy bulk from vdj/cloneId axis'); // R1
-  it.todo('detects antibody/TCR legacy bulk from vdj/clonotypeKey axis'); // R1
-  it.todo('panics with R1a message when input has no recognised sequence key'); // R1a, bogusAxisScenario
-  it.todo('emits output PColumns with input entity axis verbatim'); // R1b
+describe("modality detection", () => {
+  it.todo("detects peptide mode from variantKey + extractionRunId domain"); // R1, peptideScenario
+  it.todo("detects antibody/TCR single-cell from vdj/scClonotypeKey axis"); // R1, scIgFullScenario
+  it.todo("detects antibody/TCR legacy bulk from vdj/cloneId axis"); // R1
+  it.todo("detects antibody/TCR legacy bulk from vdj/clonotypeKey axis"); // R1
+  it.todo("panics with R1a message when input has no recognised sequence key"); // R1a, bogusAxisScenario
+  it.todo("emits output PColumns with input entity axis verbatim"); // R1b
 });
 
 // ---------------------------------------------------------------------------
@@ -76,33 +82,35 @@ describe('modality detection', () => {
 // fullPframeHandle. Pattern from titeseq + clonotype-browser tests.
 // ---------------------------------------------------------------------------
 
-describe('peptide mode output', () => {
-  it.todo('emits the 9 peptide scalar PColumns with feature=peptide domain'); // R6
-  it.todo('emits 2-axis pl7.app/aaFraction PColumn with aminoAcid axis'); // R7
-  it.todo('AA fraction PColumn has no isScore annotation'); // R16
-  it.todo('extinction coefficients oxidised and reduced both emitted'); // R8
-  it.todo('instability NA for peptides under 10 aa (per-row, not column-wide)'); // R9
+describe("peptide mode output", () => {
+  it.todo("emits the 9 peptide scalar PColumns with feature=peptide domain"); // R6
+  it.todo("emits 2-axis pl7.app/aaFraction PColumn with aminoAcid axis"); // R7
+  it.todo("AA fraction PColumn has no isScore annotation"); // R16
+  it.todo("extinction coefficients oxidised and reduced both emitted"); // R8
+  it.todo("instability NA for peptides under 10 aa (per-row, not column-wide)"); // R9
 });
 
 // ---------------------------------------------------------------------------
 // Antibody / TCR mode (R10, R11, R12, R13, R14)
 // ---------------------------------------------------------------------------
 
-describe('antibody/TCR coverage handling', () => {
-  it.todo('emits CDR3 charge + hydrophobicity per chain when CDR3 present'); // R10, scIgFullScenario
-  it.todo('emits full-chain + Fv columns on full IG paired coverage'); // R11+R12, scIgFullScenario
-  it.todo('CDR3-only input emits R11a info message and no full-chain columns'); // R11a, scIgCdr3OnlyScenario
-  it.todo('partial-region info message uses receptor-aware chain label'); // R11b
-  it.todo('missing region for one clone yields NA for that row only');
-  it.todo('TCR receptor never emits Fv columns regardless of coverage'); // R12, scTcrAbFullScenario
-  it.todo('γδ TCR input emits the γδ-labels info message');
-  it.todo('chain labels adapt to receptor while name + chain domain stay constant'); // R13
-  it.todo('bulk MiXCR IGHeavy axis derives receptor=IG from pl7.app/vdj/chain, no R13b warning'); // SD-008, bulkIgHeavyScenario
-  it.todo('bulk MiXCR TCRAlpha axis derives receptor=TCRAB from pl7.app/vdj/chain, no R13b warning'); // SD-008, bulkTcrAlphaScenario
-  it.todo('R13b warning fires only when neither receptor nor recognised chain key is present'); // R13b post-SD-008
-  it.todo('isScore annotation on the spec-mandated columns only'); // R14
-  it.todo('rankingOrder=increasing only on hydrophobicity columns'); // R14
-  it.todo('no defaultCutoff annotation anywhere in the output'); // R15
+describe("antibody/TCR coverage handling", () => {
+  it.todo("emits CDR3 charge + hydrophobicity per chain when CDR3 present"); // R10, scIgFullScenario
+  it.todo("emits full-chain + Fv columns on full IG paired coverage"); // R11+R12, scIgFullScenario
+  it.todo("CDR3-only input emits R11a info message and no full-chain columns"); // R11a, scIgCdr3OnlyScenario
+  it.todo("partial-region info message uses receptor-aware chain label"); // R11b
+  it.todo("missing region for one clone yields NA for that row only");
+  it.todo("TCR receptor never emits Fv columns regardless of coverage"); // R12, scTcrAbFullScenario
+  it.todo("γδ TCR input emits the γδ-labels info message");
+  it.todo("chain labels adapt to receptor while name + chain domain stay constant"); // R13
+  it.todo("bulk MiXCR IGHeavy axis derives receptor=IG from pl7.app/vdj/chain, no R13b warning"); // SD-008, bulkIgHeavyScenario
+  it.todo(
+    "bulk MiXCR TCRAlpha axis derives receptor=TCRAB from pl7.app/vdj/chain, no R13b warning",
+  ); // SD-008, bulkTcrAlphaScenario
+  it.todo("R13b warning fires only when neither receptor nor recognised chain key is present"); // R13b post-SD-008
+  it.todo("isScore annotation on the spec-mandated columns only"); // R14
+  it.todo("rankingOrder=increasing only on hydrophobicity columns"); // R14
+  it.todo("no defaultCutoff annotation anywhere in the output"); // R15
 });
 
 // ---------------------------------------------------------------------------
@@ -112,54 +120,54 @@ describe('antibody/TCR coverage handling', () => {
 // verified.
 // ---------------------------------------------------------------------------
 
-describe('edge cases', () => {
-  it.todo('stop codon in any region NAs the whole reconstructed chain');
-  it.todo('non-standard residues do not affect fractions / pI / GRAVY denominator');
-  it.todo('polybasic with no zero crossing emits NA pI without error');
-  it.todo('no aromatic residues emits ε = 0 (not NA)');
-  it.todo('single-cell single chain emits available chain, Fv NA');
+describe("edge cases", () => {
+  it.todo("stop codon in any region NAs the whole reconstructed chain");
+  it.todo("non-standard residues do not affect fractions / pI / GRAVY denominator");
+  it.todo("polybasic with no zero crossing emits NA pI without error");
+  it.todo("no aromatic residues emits ε = 0 (not NA)");
+  it.todo("single-cell single chain emits available chain, Fv NA");
 });
 
 // ---------------------------------------------------------------------------
 // Result-pool integration & enrichment (Lead Selection downstream)
 // ---------------------------------------------------------------------------
 
-describe('downstream consumption', () => {
-  it.todo('score columns are discoverable by a downstream block via the result pool');
-  it.todo('output PColumns carry pl7.app/trace stamped with this block\'s label');
-  it.todo('export PFrame stamps blockId on score column domains');
+describe("downstream consumption", () => {
+  it.todo("score columns are discoverable by a downstream block via the result pool");
+  it.todo("output PColumns carry pl7.app/trace stamped with this block's label");
+  it.todo("export PFrame stamps blockId on score column domains");
 });
 
 // ---------------------------------------------------------------------------
 // Model / UI behaviors
 // ---------------------------------------------------------------------------
 
-describe('model + UI', () => {
-  it.todo('inputOptions surfaces a published vdj/scClonotypeKey anchor'); // synthetic
-  it.todo('run button disabled when inputAnchor not set'); // covered by 'empty inputs' assertions
-  it.todo('inputOptions filters to the 4 supported abundance anchor patterns');
-  it.todo('info output exposes mode, receptor, coverageTier, messages array');
-  it.todo('changing inputAnchor invalidates and re-runs cleanly');
-  it.todo('title is the configured static label');
+describe("model + UI", () => {
+  it.todo("inputOptions surfaces a published vdj/scClonotypeKey anchor"); // synthetic
+  it.todo("run button disabled when inputAnchor not set"); // covered by 'empty inputs' assertions
+  it.todo("inputOptions filters to the 4 supported abundance anchor patterns");
+  it.todo("info output exposes mode, receptor, coverageTier, messages array");
+  it.todo("changing inputAnchor invalidates and re-runs cleanly");
+  it.todo("title is the configured static label");
 });
 
 // ---------------------------------------------------------------------------
 // Dedup wiring (see docs/dedup-plan.md)
 // ---------------------------------------------------------------------------
 
-describe('dedup', () => {
-  it.todo('second project on identical upstream lands on Done via dedup');
-  it.todo('changed upstream input breaks dedup and triggers fresh run');
-  it.todo('two co-instances on identical upstream run without CID conflicts');
+describe("dedup", () => {
+  it.todo("second project on identical upstream lands on Done via dedup");
+  it.todo("changed upstream input breaks dedup and triggers fresh run");
+  it.todo("two co-instances on identical upstream run without CID conflicts");
 });
 
 // ---------------------------------------------------------------------------
 // Cross-block composition
 // ---------------------------------------------------------------------------
 
-describe('cross-block composition', () => {
-  it.todo('canary: real MiXCR fastq → sequence-properties detects sc IG and emits scores');
-  it.todo('end-to-end: peptide-extraction → sequence-properties → lead-selection');
-  it.todo('two sequence-properties instances in one project disambiguate via blockId');
-  it.todo('VDJ chain: full-coverage MiXCR → seq-properties → lead-selection');
+describe("cross-block composition", () => {
+  it.todo("canary: real MiXCR fastq → sequence-properties detects sc IG and emits scores");
+  it.todo("end-to-end: peptide-extraction → sequence-properties → lead-selection");
+  it.todo("two sequence-properties instances in one project disambiguate via blockId");
+  it.todo("VDJ chain: full-coverage MiXCR → seq-properties → lead-selection");
 });
