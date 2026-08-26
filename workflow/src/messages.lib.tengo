@@ -46,8 +46,7 @@ receptorNotDetected := func() {
 // labels defaulted to and that only the labels are affected.
 receptorNotDeclared := func() {
 	return "This dataset does not say whether it holds antibody or TCR sequences, so chain " +
-		"labels follow the antibody convention (CDR-H3, VH). The property values are the same " +
-		"either way — only the labels would read differently for a TCR."
+		"labels follow the antibody convention (CDR-H3, VH)."
 }
 
 // R11c — single-domain antibody (VHH / nanobody) heuristic.
