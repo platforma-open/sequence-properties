@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "shx rm -rf dist && pl-tengo build",
-    "test": "vitest run --passWithNoTests",
+    "test": "pl-tengo test",
     "format": "/usr/bin/env emacs --script ./format.el || echo 'No emacs.'",
     "check": "pl-tengo check"
   },
@@ -17,8 +17,7 @@
   "devDependencies": {
     "@platforma-sdk/tengo-builder": "catalog:",
     "@platforma-sdk/test": "catalog:",
-    "shx": "catalog:",
-    "vitest": "catalog:"
+    "shx": "catalog:"
   },
   "peerDependencies": {}
 }
