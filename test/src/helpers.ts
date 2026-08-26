@@ -26,15 +26,15 @@
  * multiple assertions per test is the standard cost optimization.
  */
 
-import { blockSpec as samplesAndDataBlockSpec } from '@platforma-open/milaboratories.samples-and-data';
-import type { BlockData as SamplesAndDataBlockData } from '@platforma-open/milaboratories.samples-and-data.model';
-import { blockSpec as mixcrClonotypingBlockSpec } from '@platforma-open/milaboratories.mixcr-clonotyping-2';
-import type { BlockData as MixcrClonotypingBlockData } from '@platforma-open/milaboratories.mixcr-clonotyping-2.model';
-import { blockSpec as seqPropsBlockSpec } from 'this-block';
-import { uniquePlId } from '@platforma-sdk/model';
-import type { ML, RawHelpers } from '@platforma-sdk/test';
-import { awaitStableState } from '@platforma-sdk/test';
-import type { expect as vitestExpect } from 'vitest';
+import { blockSpec as samplesAndDataBlockSpec } from "@platforma-open/milaboratories.samples-and-data";
+import type { BlockData as SamplesAndDataBlockData } from "@platforma-open/milaboratories.samples-and-data.model";
+import { blockSpec as mixcrClonotypingBlockSpec } from "@platforma-open/milaboratories.mixcr-clonotyping-2";
+import type { BlockData as MixcrClonotypingBlockData } from "@platforma-open/milaboratories.mixcr-clonotyping-2.model";
+import { blockSpec as seqPropsBlockSpec } from "this-block";
+import { uniquePlId } from "@platforma-sdk/model";
+import type { ML, RawHelpers } from "@platforma-sdk/test";
+import { awaitStableState } from "@platforma-sdk/test";
+import type { expect as vitestExpect } from "vitest";
 
 export type TestCtx = {
   rawPrj: ML.Project;
@@ -46,7 +46,10 @@ export type TestCtx = {
 /**
  * Add the sequence-properties block under test.
  */
-export async function addSequenceProperties(ctx: TestCtx, label = 'Sequence Properties'): Promise<string> {
+export async function addSequenceProperties(
+  ctx: TestCtx,
+  label = "Sequence Properties",
+): Promise<string> {
   return await ctx.rawPrj.addBlock(label, seqPropsBlockSpec);
 }
 
@@ -67,19 +70,19 @@ async function configureSamplesAndData(
   const r2Handle = await helpers.getLocalFileHandle(opts.r2Path);
 
   await rawPrj.mutateBlockStorage(sndBlockId, {
-    operation: 'update-block-data',
+    operation: "update-block-data",
     value: {
       metadata: [],
       sampleIds: [sample1Id],
-      sampleLabelColumnLabel: 'Sample Name',
-      sampleLabels: { [sample1Id]: 'Sample 1' },
+      sampleLabelColumnLabel: "Sample Name",
+      sampleLabels: { [sample1Id]: "Sample 1" },
       datasets: [
         {
           id: dataset1Id,
-          label: 'Dataset 1',
+          label: "Dataset 1",
           content: {
-            type: 'Fastq',
-            readIndices: ['R1', 'R2'],
+            type: "Fastq",
+            readIndices: ["R1", "R2"],
             gzipped: true,
             data: { [sample1Id]: { R1: r1Handle, R2: r2Handle } },
           },
@@ -109,15 +112,12 @@ async function configureMixcrClonotyping(
   // After samples-and-data Done, clonotyping's inputOptions populates from
   // the result pool. Wait for it to stabilize, then take the first option.
   type ClonotypingInputOption = { ref: { __isRef: true; blockId: string; name: string } };
-  const clonotypingState = await awaitStableState(
-    rawPrj.getBlockState(clonotypingBlockId),
-    25000,
-  );
+  const clonotypingState = await awaitStableState(rawPrj.getBlockState(clonotypingBlockId), 25000);
   const inputOptions = (
     clonotypingState.outputs as Record<string, { value?: ClonotypingInputOption[] }>
   ).inputOptions?.value;
   if (!inputOptions || inputOptions.length === 0) {
-    throw new Error('mixcr-clonotyping-2 inputOptions did not populate after samples-and-data');
+    throw new Error("mixcr-clonotyping-2 inputOptions did not populate after samples-and-data");
   }
 
   // mixcr-clonotyping-2@2.18 pins @platforma-sdk/model@1.63.1, whose
@@ -126,7 +126,7 @@ async function configureMixcrClonotyping(
   // structurally close, but the version literal differs and TS treats
   // them as incompatible. Constructing the v5 literal directly avoids
   // the cross-version helper and keeps the type fully checked.
-  const tableState: MixcrClonotypingBlockData['tableState'] = {
+  const tableState: MixcrClonotypingBlockData["tableState"] = {
     version: 5,
     stateCache: [],
     pTableParams: {
@@ -138,15 +138,15 @@ async function configureMixcrClonotyping(
   };
 
   await rawPrj.mutateBlockStorage(clonotypingBlockId, {
-    operation: 'update-block-data',
+    operation: "update-block-data",
     value: {
-      defaultBlockLabel: '',
-      customBlockLabel: '',
+      defaultBlockLabel: "",
+      customBlockLabel: "",
       input: inputOptions[0].ref,
-      preset: { type: 'name', name: preset },
+      preset: { type: "name", name: preset },
       chains,
       tableState,
-      runMode: 'full',
+      runMode: "full",
     } satisfies MixcrClonotypingBlockData,
   });
 }
@@ -165,12 +165,12 @@ export async function setupMixcrAnchor(
     r2Path: string;
   },
 ): Promise<{ sndBlockId: string; clonotypingBlockId: string; seqPropsBlockId: string }> {
-  const preset = opts.preset ?? '10x-sc-xcr-vdj-rhapsody';
-  const chains = opts.chains ?? ['IGHeavy', 'IGLight'];
+  const preset = opts.preset ?? "10x-sc-xcr-vdj-rhapsody";
+  const chains = opts.chains ?? ["IGHeavy", "IGLight"];
 
   const { rawPrj, helpers } = ctx;
-  const sndBlockId = await rawPrj.addBlock('Samples & Data', samplesAndDataBlockSpec);
-  const clonotypingBlockId = await rawPrj.addBlock('MiXCR Clonotyping', mixcrClonotypingBlockSpec);
+  const sndBlockId = await rawPrj.addBlock("Samples & Data", samplesAndDataBlockSpec);
+  const clonotypingBlockId = await rawPrj.addBlock("MiXCR Clonotyping", mixcrClonotypingBlockSpec);
   const seqPropsBlockId = await addSequenceProperties(ctx);
 
   await configureSamplesAndData(ctx, sndBlockId, opts);
