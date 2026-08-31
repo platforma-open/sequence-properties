@@ -39,6 +39,16 @@ receptorNotDetected := func() {
 		"Use a MiXCR preset that emits the receptor annotation if this is a TCR dataset."
 }
 
+// R13b for an input that declared pl7.app/modality: vdj. The message above points
+// at a MiXCR preset, which is a dead end here — synthetic-repertoire-profiler has
+// no receptor to emit at all (germline auto-detect builds its reference from the
+// user's own parent sequences, so there is no library locus to read). Say what the
+// labels defaulted to and that only the labels are affected.
+receptorNotDeclared := func() {
+	return "This dataset does not say whether it holds antibody or TCR sequences, so chain " +
+		"labels follow the antibody convention (CDR-H3, VH)."
+}
+
 // R11c — single-domain antibody (VHH / nanobody) heuristic.
 vhh := func() {
 	return "Possible VHH/single-domain antibody input detected (heavy chain only; " +
@@ -60,6 +70,7 @@ export ll.toStrict({
 	cdr3OnlyInput: cdr3OnlyInput,
 	gammaDeltaTcr: gammaDeltaTcr,
 	receptorNotDetected: receptorNotDetected,
+	receptorNotDeclared: receptorNotDeclared,
 	vhh: vhh,
 	peptidesShortInstability: peptidesShortInstability
 })
