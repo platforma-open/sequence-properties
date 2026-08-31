@@ -1,0 +1,172 @@
+// Unit tests for modality detection. Pure Tengo — no backend, no resources.
+// Run with `pl-tengo test` from workflow/.
+
+test := import("@platforma-sdk/workflow-tengo:test")
+modality := import(":modality")
+
+// Entity-axis spec as a producer emits it. Only name and domain matter here.
+axis := func(name, dom) {
+	return { name: name, type: "String", domain: dom }
+}
+
+PROFILER_RUN := "abcd1234"
+
+// ---------------------------------------------------------------------------
+// synthetic-repertoire-profiler — the declaration
+// ---------------------------------------------------------------------------
+
+// A VDJ profiler run must reach the antibody path. It keeps
+// repertoire/extractionRunId in both modalities, so the declaration is the only
+// thing that separates the two and it has to be read before the run-id checks.
+Test_detectMode_declaredVdjTakesAntibodyPath := func() {
+	test.isEqual(
+		"antibody_tcr_universal",
+		modality.detectMode(axis("pl7.app/variantKey", {
+			"pl7.app/alphabet": "aminoacid",
+			"pl7.app/repertoire/extractionRunId": PROFILER_RUN,
+			"pl7.app/modality": "vdj"
+		})),
+		"a declared vdj profiler run must take the antibody/TCR path"
+	)
+}
+
+Test_detectMode_declaredAmpliconStaysWholeSequence := func() {
+	test.isEqual(
+		"amplicon",
+		modality.detectMode(axis("pl7.app/variantKey", {
+			"pl7.app/alphabet": "aminoacid",
+			"pl7.app/repertoire/extractionRunId": PROFILER_RUN,
+			"pl7.app/modality": "amplicon"
+		})),
+		"a declared amplicon profiler run must stay on the whole-sequence path"
+	)
+}
+
+// Projects made before the declaration landed carry the run-id key alone. They
+// must keep behaving exactly as they did.
+Test_detectMode_profilerWithoutDeclarationIsAmplicon := func() {
+	test.isEqual(
+		"amplicon",
+		modality.detectMode(axis("pl7.app/variantKey", {
+			"pl7.app/alphabet": "aminoacid",
+			"pl7.app/repertoire/extractionRunId": PROFILER_RUN
+		})),
+		"an undeclared profiler run must keep the previous amplicon behaviour"
+	)
+}
+
+// An unknown modality value is not a licence to guess. Fall through to the
+// heuristics rather than treat "whatever this is" as VDJ.
+Test_detectMode_unknownModalityFallsThroughToRunId := func() {
+	test.isEqual(
+		"amplicon",
+		modality.detectMode(axis("pl7.app/variantKey", {
+			"pl7.app/repertoire/extractionRunId": PROFILER_RUN,
+			"pl7.app/modality": "something-new"
+		})),
+		"an unrecognised modality value must fall through to the run-id heuristic"
+	)
+}
+
+// The declaration wins over the run-id key, which is the whole point of reading
+// it first. Guards against someone reordering the branches.
+Test_detectMode_declarationBeatsRunIdKey := func() {
+	test.isEqual(
+		"antibody_tcr_universal",
+		modality.detectMode(axis("pl7.app/variantKey", {
+			"pl7.app/peptide/extractionRunId": "peptide-run",
+			"pl7.app/repertoire/extractionRunId": PROFILER_RUN,
+			"pl7.app/modality": "vdj"
+		})),
+		"the declaration must be read before any run-id key"
+	)
+}
+
+// ---------------------------------------------------------------------------
+// The other producers on the shared axis — unchanged behaviour
+// ---------------------------------------------------------------------------
+
+Test_detectMode_peptideExtraction := func() {
+	test.isEqual(
+		"peptide",
+		modality.detectMode(axis("pl7.app/variantKey", {
+			"pl7.app/peptide/extractionRunId": "peptide-run"
+		})),
+		"peptide-extraction input must stay peptide"
+	)
+}
+
+Test_detectMode_clonotypingRunIdOnUniversalAxis := func() {
+	test.isEqual(
+		"antibody_tcr_universal",
+		modality.detectMode(axis("pl7.app/variantKey", {
+			"pl7.app/vdj/clonotypingRunId": "vdj-run"
+		})),
+		"a vdj clonotyping run-id on the universal axis must take the antibody path"
+	)
+}
+
+Test_detectMode_variantKeyWithNoDomainIsUnrecognised := func() {
+	test.isEqual("", modality.detectMode(axis("pl7.app/variantKey", undefined)),
+		"a bare variantKey axis carries no modality and must not be guessed")
+	test.isEqual("", modality.detectMode(axis("pl7.app/variantKey", {})),
+		"an empty domain carries no modality and must not be guessed")
+}
+
+// ---------------------------------------------------------------------------
+// Legacy MiXCR axes — modality is in the axis name, no domain needed
+// ---------------------------------------------------------------------------
+
+Test_detectMode_legacyMixcrAxes := func() {
+	test.isEqual("antibody_tcr_legacy_bulk",
+		modality.detectMode(axis("pl7.app/vdj/cloneId", undefined)),
+		"archived MiXCR bulk axis")
+	test.isEqual("antibody_tcr_legacy_bulk",
+		modality.detectMode(axis("pl7.app/vdj/clonotypeKey", undefined)),
+		"current MiXCR bulk axis (SD-007)")
+	test.isEqual("antibody_tcr_legacy_sc",
+		modality.detectMode(axis("pl7.app/vdj/scClonotypeKey", undefined)),
+		"MiXCR single-cell axis")
+}
+
+// A modality declaration on a VDJ axis changes nothing: the name already says
+// what the data is, and no producer stamps both.
+Test_detectMode_legacyAxisIgnoresDeclaration := func() {
+	test.isEqual("antibody_tcr_legacy_bulk",
+		modality.detectMode(axis("pl7.app/vdj/clonotypeKey", { "pl7.app/modality": "amplicon" })),
+		"a VDJ axis name must not be overridden by a modality declaration")
+}
+
+Test_detectMode_unrecognisedAxis := func() {
+	test.isEqual("", modality.detectMode(axis("pl7.app/sampleId", undefined)),
+		"sampleId is not a sequence key axis")
+	test.isEqual("", modality.detectMode(axis("com.example/someKey", { "pl7.app/modality": "vdj" })),
+		"a declaration on an axis this block does not accept must not make it acceptable")
+}
+
+// ---------------------------------------------------------------------------
+// declaredMode / isDeclared
+// ---------------------------------------------------------------------------
+
+Test_declaredMode := func() {
+	test.isEqual("antibody_tcr_universal", modality.declaredMode({ "pl7.app/modality": "vdj" }),
+		"vdj maps to this block's universal antibody/TCR mode")
+	test.isEqual("amplicon", modality.declaredMode({ "pl7.app/modality": "amplicon" }),
+		"amplicon maps through unchanged")
+	test.isEqual("", modality.declaredMode({}), "no key means nothing declared")
+	test.isEqual("", modality.declaredMode(undefined), "no domain at all means nothing declared")
+}
+
+// isDeclared drives only the receptor-warning wording, so it must be true for
+// both declared modalities and false for every inferred one.
+Test_isDeclared := func() {
+	test.isTrue(modality.isDeclared(axis("pl7.app/variantKey", { "pl7.app/modality": "vdj" })),
+		"a declared vdj run is declared")
+	test.isTrue(modality.isDeclared(axis("pl7.app/variantKey", { "pl7.app/modality": "amplicon" })),
+		"a declared amplicon run is declared")
+	test.isFalse(modality.isDeclared(axis("pl7.app/vdj/clonotypeKey", undefined)),
+		"a MiXCR axis is inferred from its name, not declared")
+	test.isFalse(modality.isDeclared(axis("pl7.app/variantKey",
+		{ "pl7.app/repertoire/extractionRunId": PROFILER_RUN })),
+		"an undeclared profiler run is inferred")
+}

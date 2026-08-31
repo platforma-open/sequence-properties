@@ -539,3 +539,147 @@ chart renders without the reference line.
   `core/visualizations/packages/graph-maker/src/utils/createChartSettingsForRender/composeScatterplotSettings.ts`,
   `composeHistogramSettings.ts`, and `getAxesDataFromForms.ts`.
 - `AxesState` shape: `core/visualizations/packages/graph-maker/src/constantsCommon.ts`.
+
+---
+
+## SD-010: Read the Declared `pl7.app/modality` Before the Run-Id Heuristics
+
+**Status:** applied
+**Date:** 2026-08-26
+**Affected file:** `workflow/src/modality.lib.tengo` (`declaredMode`, `detectMode`,
+`isDeclared`), `workflow/src/main.tpl.tengo` (detection loop, R13b branch),
+`workflow/src/messages.lib.tengo` (`receptorNotDeclared`)
+
+### Symptom
+
+Spec README derives modality from the entity-axis name plus the run-id key in
+its domain. `synthetic-repertoire-profiler` now runs one pipeline over both
+antibody/TCR parents and designed libraries, and keeps
+`pl7.app/repertoire/extractionRunId` on the entity axis in **both** cases. Under
+the spec's rule, a VDJ profiler run is classified `amplicon` and scanned as a
+single whole sequence — its FR1–FR4 regions, CDR3 included, are never read.
+
+Nothing crashes. The run produces whole-sequence properties for a V-domain and
+labels them amplicon, so the defect surfaces as missing CDR-H3 columns rather
+than as an error.
+
+### Root cause
+
+`pl7.app/variantKey` is deliberately modality-neutral; three producers share it.
+The run-id key was the only discriminator available, and it does not vary with
+the profiler's modality. The profiler therefore declares the modality outright,
+in the entity-axis domain: `pl7.app/modality: vdj | amplicon`
+(`synthetic-repertoire-profiler/workflow/src/column-specs.lib.tengo`,
+`runScopeDomain`).
+
+### Trigger
+
+Any `synthetic-repertoire-profiler` run whose region configuration is VDJ —
+germline auto-detect, or any parent on the `vdj` region scheme.
+
+### Impact
+
+A declared `vdj` input now routes to `antibody_tcr_universal`, the branch that
+already existed for VDJ-on-`variantKey`. Nothing else in the pipeline changed:
+
+- **Region columns.** The profiler emits `pl7.app/sequence` with the region name
+  in `pl7.app/feature`. The `universalSequences` bundle entry already matches
+  those (name + `alphabet: aminoacid`, no feature filter) and `vdjSequences` is
+  empty for this producer, so the existing fallback picks them up. The
+  whole-variant `amplicon-sequence` column is matched too and dropped by the
+  `REQUIRED_FEATURES` filter.
+- **Coverage.** A `vdj` run always carries the exact FR1–FR4 partition: the
+  profiler's model rejects a `vdj`-scheme parent whose regions are not exactly
+  `VDJ_REGION_NAMES`, and germline auto-detect hardcodes the same seven. So the
+  input lands on `full_chain`.
+- **Chain.** No `pl7.app/vdj/scClonotypeChain` is emitted, so the existing
+  bulk-without-chain default applies and the single chain is `A`.
+- **Fv.** `hasFv` needs full coverage on both `A` and `B`. The profiler frames
+  variants against one parent at a time and has no VH/VL pairing, so Fv columns
+  are correctly absent.
+- **Python.** `pipeline.py` branches on `mode == "peptide"` against everything
+  else, so `antibody_tcr_universal` reaches `run_antibody_tcr` unchanged.
+
+Inputs without the declaration are untouched — projects made before it landed
+keep the run-id behaviour exactly.
+
+### Options considered
+
+**A. Read the declaration first, keep every heuristic below it. [chosen]**
+Five lines in `detectMode`. Routes a declared `vdj` run into a branch that
+already exists, and leaves undeclared inputs bit-identical.
+
+**B. Keep inferring, and treat the presence of aa region columns as the VDJ
+signal.** Works without a producer contract, but guesses where a declaration
+exists, and a partial-region profiler run would flip modality on data shape
+rather than on what the producer said it made.
+
+**C. Ask the user.** A control the upstream block has already answered. It could
+also be set to contradict the declaration.
+
+### Decision
+
+**A.** The producer states the fact; reading it beats re-deriving it. Ordering
+the declaration ahead of the run-id checks is the whole point, and
+`Test_detectMode_declarationBeatsRunIdKey` pins it.
+
+### Divergence from `antibody-sequence-liabilities`
+
+That block made the same migration and **hard-asserts** that a declared `vdj`
+input carries a CDR3 region column. This block does not: partial region coverage
+is already a first-class case here, with `partialChainNoCdr3` /
+`partialChainMissingFullChain` reporting the exact count in the UI. A missing
+CDR3 on a declared `vdj` run is a producer-side gap either way; surfacing it as
+an info message that still yields whatever columns are computable is the posture
+this block takes everywhere else, so it is kept.
+
+### R13b wording
+
+A declared `vdj` input reaches the receptor warning with no receptor resolved,
+because the profiler emits neither `pl7.app/vdj/receptor` nor
+`pl7.app/vdj/chain` — and cannot: germline auto-detect builds its reference from
+the user's own parent sequences, so there is no library locus to read. R13b's
+text tells the user to pick a MiXCR preset that emits the annotation, which is a
+dead end for this input. `messages.receptorNotDeclared` states what the labels
+defaulted to and that only labels are affected; `receptorNotDetected` keeps its
+original text for MiXCR inputs, where the advice is actionable.
+
+Receptor is not label-only, so what the IG default costs is worth stating
+precisely. Per spec R13a it does not change column identity: `labelFragments`
+varies the label annotation (CDR-H3/VH vs CDR-α3/Vα vs CDR-γ3/Vγ) while the
+PColumn name and the `pl7.app/vdj/scClonotypeChain` domain stay the same, and
+the Python step only logs `plan.receptor`. But two decisions do read it:
+
+- **`hasFv`** (`main.tpl.tengo`) requires `receptor == "IG"`, and so gates
+  whether the Fv columns exist at all. Not reached here — it also requires full
+  coverage on both `A` and `B`, and the profiler emits one chain — so the IG
+  default costs nothing on this path. It would matter for any producer that
+  emitted paired chains without a receptor.
+- **The R11c VHH heuristic** (`info.tpl.tengo`) fires on
+  `receptor == "IG"` + exactly one CDR3-bearing chain `A` + median CDR3 ≥ 16 aa.
+  A declared `vdj` profiler run satisfies the first two by construction, so a
+  library with long CDR3s is told it looks like a VHH/single-domain antibody.
+  Here "heavy chain only" is an artifact of the profiler emitting no chain key
+  at all, not evidence of a single-domain antibody — a false positive left
+  open deliberately rather than fixed blind, since narrowing R11c is a product
+  call about what the heuristic is for. Open question, not settled by this
+  deviation.
+
+### Extraction
+
+`detectMode` moved from `main.tpl.tengo` into `modality.lib.tengo` so it could be
+unit-tested. It is pure synchronous logic with no resources, which is what
+Tengo unit tests are for; `modality.test.tengo` covers all four producers, both
+declared modalities, an unrecognised modality value, the declaration-beats-run-id
+ordering, and the undeclared back-compatibility path. The workflow `test` script
+is `pl-tengo test`, matching `blocks/repertoire-labeling`.
+
+### References
+
+- Producer declaration: `synthetic-repertoire-profiler/workflow/src/column-specs.lib.tengo`
+  (`runScopeDomain`), modality derived in `workflow/src/main.tpl.tengo`.
+- FR1–FR4 guarantee: `synthetic-repertoire-profiler/model/src/index.ts`
+  (`VDJ_REGION_NAMES`), `workflow/src/region-config.lib.tengo` (`vdjAuto`).
+- Cross-block survey and spec atom A-0060: `synthetic-repertoire-profiler/dms-modality.md`.
+- Reference migration: `antibody-sequence-liabilities/model/src/index.ts`
+  (`declaredModality`), `workflow/src/main.tpl.tengo`.

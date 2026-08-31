@@ -1,0 +1,95 @@
+// Modality detection — which analysis path an input dataset takes.
+//
+// The whole block branches on the value this returns, so it lives here rather
+// than inside main.tpl.tengo: pure synchronous logic, unit-tested in
+// modality.test.tengo, no resources and no graph construction.
+//
+// Four producers key entities on axes this block accepts:
+//
+//   pl7.app/variantKey          peptide-extraction, synthetic-repertoire-profiler
+//   pl7.app/vdj/cloneId         MiXCR clonotyping (archived name)
+//   pl7.app/vdj/clonotypeKey    MiXCR clonotyping (current name)
+//   pl7.app/vdj/scClonotypeKey  MiXCR single-cell clonotyping
+//
+// Only the VDJ axis names carry their modality in the name. `variantKey` is
+// deliberately modality-neutral — several producers share it — so what kind of
+// data it holds has to come out of the axis domain.
+
+ll := import("@platforma-sdk/workflow-tengo:ll")
+
+// Entity-axis domain key by which a producer declares which kind of repertoire
+// it made, and the two values it takes.
+MODALITY_DOMAIN_KEY := "pl7.app/modality"
+
+// The declared modality translated into this block's vocabulary. "" when the
+// producer declares nothing, which sends the caller on to the run-id heuristics.
+//
+// The data layer's word for the antibody/TCR case is `vdj`; this block calls the
+// universal-axis form of it `antibody_tcr_universal`. The two name the same
+// thing, so the translation is written out rather than left to a string match
+// that would break the day either side is renamed.
+declaredMode := func(dom) {
+	if dom == undefined { return "" }
+	m := dom[MODALITY_DOMAIN_KEY]
+	if m == "vdj" { return "antibody_tcr_universal" }
+	if m == "amplicon" { return "amplicon" }
+	return ""
+}
+
+// Mode for one axis spec, or "" when the axis is not one this block recognises.
+// The caller walks the input's axes and takes the first non-empty answer.
+detectMode := func(axisSpec) {
+	dom := axisSpec.domain
+	if axisSpec.name == "pl7.app/variantKey" {
+		// The producer says what it made. synthetic-repertoire-profiler runs one
+		// pipeline over both antibody/TCR parents and designed libraries, and
+		// everything it emits sits on the modality-neutral variantKey axis — so it
+		// declares the kind instead of leaving consumers to guess. Read the
+		// declaration before any heuristic below.
+		declared := declaredMode(dom)
+		if declared != "" { return declared }
+
+		// No declaration: peptide-extraction and import-vdj-data never emit one, and
+		// neither did the profiler before it landed. The run-id key is then the only
+		// thing separating the producers on this axis.
+		if dom != undefined && dom["pl7.app/peptide/extractionRunId"] != undefined {
+			return "peptide"
+		}
+		// A profiler run without a declaration is read as amplicon, as it always was.
+		// Its whole-variant sequence gets the same whole-sequence property treatment
+		// as a peptide (see wholeSeqMode in main.tpl.tengo). A VDJ run made before
+		// the declaration landed lands here too — the run-id key is identical in both
+		// modalities, so nothing in the data distinguishes them.
+		if dom != undefined && dom["pl7.app/repertoire/extractionRunId"] != undefined {
+			return "amplicon"
+		}
+		if dom != undefined && dom["pl7.app/vdj/clonotypingRunId"] != undefined {
+			return "antibody_tcr_universal"
+		}
+	}
+	if axisSpec.name == "pl7.app/vdj/cloneId" {
+		return "antibody_tcr_legacy_bulk"
+	}
+	if axisSpec.name == "pl7.app/vdj/clonotypeKey" {
+		return "antibody_tcr_legacy_bulk"
+	}
+	if axisSpec.name == "pl7.app/vdj/scClonotypeKey" {
+		return "antibody_tcr_legacy_sc"
+	}
+	return ""
+}
+
+// Whether a mode declared its own modality rather than being inferred. Only used
+// to pick the right "receptor not detected" wording: a declared-VDJ input comes
+// from a producer that has no receptor to emit, so pointing the user at a MiXCR
+// preset would send them after something that does not exist for their data.
+isDeclared := func(axisSpec) {
+	return declaredMode(axisSpec.domain) != ""
+}
+
+export ll.toStrict({
+	MODALITY_DOMAIN_KEY: MODALITY_DOMAIN_KEY,
+	declaredMode: declaredMode,
+	detectMode: detectMode,
+	isDeclared: isDeclared
+})

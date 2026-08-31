@@ -1,3 +1,4 @@
+import { kind } from "@platforma-open/milaboratories.sequence-properties.kind";
 import type { InferOutputsType, PColumnIdAndSpec, PFrameHandle } from "@platforma-sdk/model";
 import {
   Annotation,
@@ -35,7 +36,7 @@ const inputAnchorSpecs = [
   },
 ];
 
-export const platforma = BlockModelV3.create(blockDataModel)
+export const platforma = BlockModelV3.create({ dataModel: blockDataModel, kind })
   .args<BlockArgs>((data) => {
     if (data.inputAnchor === undefined) {
       throw new Error("Select an input dataset");
@@ -45,6 +46,10 @@ export const platforma = BlockModelV3.create(blockDataModel)
       traceLabel: resolveTraceLabel(data),
     };
   })
+  // Inverse of the kind's init-params contract: the same single field `init`
+  // consumes. The label fields and the table / plot states stay out — they are
+  // view state, not configuration a template carries.
+  .templateParams((data) => ({ inputAnchor: data.inputAnchor }))
   .output("inputOptions", (ctx) => ctx.resultPool.getOptions(inputAnchorSpecs))
   .output("inputSpec", (ctx) =>
     ctx.data.inputAnchor ? ctx.resultPool.getPColumnSpecByRef(ctx.data.inputAnchor) : undefined,
