@@ -5,7 +5,7 @@ Two contexts:
 - **Peptide set**: short, fully solvent-exposed residues. Used for peptide-mode
   inputs and for CDR3 sequences regardless of full-chain availability.
 - **Protein set**: residues in a folded globular-domain context. Used for
-  reconstructed full VH / VL chains.
+  reconstructed full variable-domain chains.
 
 Source: Kozlowski LP. *IPC 2.0: prediction of isoelectric point and pKa
 dissociation constants.* Nucleic Acids Research 49(W1):W285-W292 (2021).

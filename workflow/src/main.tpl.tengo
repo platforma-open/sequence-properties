@@ -291,12 +291,12 @@ wf.body(func(args) {
 	// Receptor-aware chain label for user-facing messages (R11b).
 	chainLabel := func(ch) {
 		if receptor == "TCRAB" {
-			if ch == "A" { return "alpha" }
-			if ch == "B" { return "beta" }
+			if ch == "A" { return "beta" }
+			if ch == "B" { return "alpha" }
 		}
 		if receptor == "TCRGD" {
-			if ch == "A" { return "gamma" }
-			if ch == "B" { return "delta" }
+			if ch == "A" { return "delta" }
+			if ch == "B" { return "gamma" }
 		}
 		// IG / unknown — antibody convention.
 		if ch == "A" { return "heavy" }
@@ -381,7 +381,7 @@ wf.body(func(args) {
 	// Python step contract: reads input.tsv + plan.json; writes properties.tsv,
 	// plus aa_fraction.tsv in peptide mode (empty body in antibody/TCR mode), plus
 	// stats.json (dataset-level scalars consumed by the info layer — e.g. R11c
-	// median CDR-H3 length per chain).
+	// median CDR3 length per chain).
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
 	// 12GiB (up from the 4GiB default): the vectorized step materializes full-N
 	// count matrices, so peak memory scales with clone count. cpu(1) is

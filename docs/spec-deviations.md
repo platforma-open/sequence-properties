@@ -539,3 +539,98 @@ chart renders without the reference line.
   `core/visualizations/packages/graph-maker/src/utils/createChartSettingsForRender/composeScatterplotSettings.ts`,
   `composeHistogramSettings.ts`, and `getAxesDataFromForms.ts`.
 - `AxesState` shape: `core/visualizations/packages/graph-maker/src/constantsCommon.ts`.
+
+---
+
+## SD-010: Chain Letter "A" Is The D-Recombining Chain, Not Alpha/Gamma
+
+**Status:** applied
+**Date:** 2026-08-31
+**Affected file:** `workflow/src/columns.lib.tengo` (`labelFragments`),
+`workflow/src/main.tpl.tengo` (`chainLabel`)
+
+### Symptom
+
+On paired αβ TCR input the CDR3 and full-chain labels named the wrong chain:
+the column labelled `CDR-α3 Net Charge (pH 7)` carried the beta chain's
+values, and `CDR-β3` carried alpha's. Same inversion on γδ (`CDR-γ3` showed
+delta), and in the R11b partial-coverage info messages ("…found for alpha
+chain" on beta data).
+
+### Root cause
+
+The spec states the opposite mapping. `README.md` R13 (L210-212) and
+`pcolumn-spec.md` (L204-218) both assert that for `TCRAB` chain `"A"` is TRA
+(alpha) and for `TCRGD` chain `"A"` is TRG (gamma), with an explicit note:
+*"for αβ TCR, chain 'A' is alpha, not beta."* The implementation followed the
+spec.
+
+The producer does the reverse. MiXCR orders a receptor's chain slots by
+diversity — the D-recombining chain first — and the slot index is what becomes
+the `pl7.app/vdj/scClonotypeChain` letter:
+
+```tengo
+// mixcr-clonotyping/workflow/src/process.tpl.tengo:39-44
+// Chain with higher diversity go first
+"IG":    { chains: ["IGHeavy", "IGLight"] },
+"TCRAB": { chains: ["TCRBeta", "TCRAlpha"] },
+"TCRGD": { chains: ["TCRDelta", "TCRGamma"] }
+```
+
+So `"A"` is heavy / beta / delta. The spec's cited source
+(`antibody-tcr-lead-selection/workflow/src/utils.lib.tengo`) is itself
+inverted for TCR and is the origin of the error. R13 carried a pre-M1 gate
+requiring this mapping be verified against real MiXCR output; this is that
+verification.
+
+### Trigger
+
+Any paired TCR dataset — αβ or γδ. Confirmed on single-cell TCRAB.
+
+### Impact (before fix)
+
+Labels only. PColumn `name` values and the `pl7.app/vdj/scClonotypeChain`
+domain (`"A"`/`"B"`) were correct throughout, so downstream blocks selecting
+by spec were unaffected. A user reading the table, or picking a default
+scatter axis by label, saw one chain's values attributed to the other.
+
+### Options considered
+
+**A. Follow the producer; correct the labels. [chosen]**
+Two label maps change. Names and domains untouched, so no schema impact and
+no downstream re-keying.
+
+**B. Follow the spec and leave the labels as they were.**
+Requires MiXCR to renumber its chain slots — out of scope, and would break
+every block already reading the A/B convention.
+
+**C. Emit the concrete chain name instead of a slot-derived label.**
+Removes the ambiguity at the source, but changes every TCR column label and
+needs the concrete chain on paired input, which single-cell does not carry
+per column.
+
+### Decision
+
+**A.** Three shipped components independently encode A = D-recombining chain:
+the producer (`mixcr-clonotyping` above), `import-vdj-data`
+(`bare-set-specs.lib.tengo:64-71`, `PAIRED_CHAIN_DOMAIN`), and
+`antibody-sequence-liabilities` (`main.tpl.tengo:25-29`, with the same
+rationale in a comment). The SDK naming-conventions guide agrees. The spec and
+`antibody-tcr-lead-selection` are the outliers.
+
+### Implementation
+
+`labelFragments(receptor, chain)` in `columns.lib.tengo` and `chainLabel(ch)`
+in `main.tpl.tengo`. Covered by `workflow/src/columns.test.tengo`, which pins
+the slot→label mapping for all three receptors and asserts the chain domain
+stays independent of the label.
+
+### References
+
+- Spec sections requiring correction: `README.md` R13 (L210-212), the R13a
+  label table (L218), L451, the γδ edge-case row (L587); `pcolumn-spec.md`
+  L204-218.
+- Producer: `blocks/mixcr-clonotyping/workflow/src/process.tpl.tengo:39-44`.
+- Public docs: `docs/docs.platforma.bio/docs/30-sdk/100-vdj-guides/60-naming-conventions.md`.
+- Still inverted, tracked separately:
+  `antibody-tcr-lead-selection/workflow/src/utils.lib.tengo:702-705`.
