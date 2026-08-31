@@ -41,6 +41,34 @@ Test_buildColumns_chainAIsTheDiverseChain := func() {
 	}
 }
 
+orderOf := func(cols, tsvCol) {
+	for col in cols {
+		if col.column == tsvCol {
+			return col.spec.annotations["pl7.app/table/orderPriority"]
+		}
+	}
+	return undefined
+}
+
+Test_buildColumns_tableOrderFollowsSpokenNaming := func() {
+	pairs := [
+		{ receptor: "IG", first: "A", second: "B" },
+		{ receptor: "TCRAB", first: "B", second: "A" },
+		{ receptor: "TCRGD", first: "B", second: "A" }
+	]
+	for pair in pairs {
+		cols := pairedCols(pair.receptor)
+		test.isEqual("68000", orderOf(cols, "charge_" + pair.first + "_CDR3"),
+			pair.receptor + " CDR3 leads with chain " + pair.first)
+		test.isEqual("67700", orderOf(cols, "charge_" + pair.second + "_CDR3"),
+			pair.receptor + " CDR3 trails with chain " + pair.second)
+		test.isEqual("67000", orderOf(cols, "charge_" + pair.first + "_VDJRegion"),
+			pair.receptor + " full-chain leads with chain " + pair.first)
+		test.isEqual("66000", orderOf(cols, "charge_" + pair.second + "_VDJRegion"),
+			pair.receptor + " full-chain trails with chain " + pair.second)
+	}
+}
+
 Test_buildColumns_chainDomainIsIndependentOfTheLabel := func() {
 	for receptor in ["IG", "TCRAB", "TCRGD"] {
 		cols := pairedCols(receptor)
