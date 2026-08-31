@@ -634,3 +634,62 @@ stays independent of the label.
 - Public docs: `docs/docs.platforma.bio/docs/30-sdk/100-vdj-guides/60-naming-conventions.md`.
 - Still inverted, tracked separately:
   `antibody-tcr-lead-selection/workflow/src/utils.lib.tengo:702-705`.
+
+---
+
+## SD-011: Table Order Follows Spoken Chain Naming, Not Slot Order
+
+**Status:** applied
+**Date:** 2026-08-31
+**Affected file:** `workflow/src/columns.lib.tengo` (`displaysFirst`,
+`buildCdr3Columns`, `buildFullChainColumns`)
+
+### Root cause
+
+`pl7.app/table/orderPriority` was keyed to the chain *slot* — `"A"` always took
+the higher band — and the spec fixes those numbers slot-wise from the IG
+perspective (`pcolumn-spec.md:295`: `"67000"  // 66000 for light chain`). For IG
+that is invisible, since heavy is both the first-named and the slot-`A` chain.
+For TCR the two rules diverge, because slot `A` is the D-recombining chain
+(SD-010) — beta, not alpha. The table therefore led with `CDR-β3`, leaking
+MiXCR's diversity-first slot assignment into the column order exactly as the
+labels did before SD-010.
+
+### Options considered
+
+**A. Order by the receptor's spoken naming. [chosen]** Assign the existing
+bands by a (receptor, chain) display rank instead of the slot letter. IG keeps
+heavy-then-light; no name, domain or value changes.
+**B. Leave ordering on the slot.** Matches the spec's literal numbers, but
+keeps a producer artifact in front of the scientist.
+**C. Order by slot and rename labels to match.** Rejected — re-introduces the
+SD-010 bug.
+
+### Decision
+
+**A.** Slot identity belongs to the producer; the label and the reading order
+are the user-facing surface. SD-010 established that for labels, and column
+position is the same surface reached a different way. Nothing cross-block is
+broken: `import-vdj-data` keys `orderPriority` per region, identical for both
+chains (`bare-set-specs.lib.tengo:331`), so its chain order is incidental.
+
+### Deliberately not changed: the default plot axis
+
+`ui/src/utils/scalarColumns.ts` still selects `scClonotypeChain: "A"` for the
+default scatter and histogram source, per R19/R20. Table order is a reading
+convention; the default plotted chain is an analytical one, and beta/delta carry
+the greater CDR3 diversity. The chart labels its own axes, so the divergence is
+unambiguous. The R19a/R20a fallback reads *emission* order — unchanged here — so
+it also still lands on chain `A`.
+
+### Implementation
+
+`displaysFirst(receptor, chain)` in `columns.lib.tengo`, pinned per receptor
+across both bands by `Test_buildColumns_tableOrderFollowsSpokenNaming` in
+`workflow/src/columns.test.tengo`.
+
+### References
+
+- Spec requiring correction: `pcolumn-spec.md:295` and the slot-keyed
+  orderPriority values through L240-L420.
+- Predecessor: SD-010. Default-axis spec: `README.md` R19, R20, R19a, R20a.
