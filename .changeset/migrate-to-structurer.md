@@ -22,6 +22,6 @@ Two changes are visible outside the block:
   the whole block into `dist/` plus `block-pack/`, and exports
   `SequencePropertiesBlockPointer` for consumers that add the block from code.
 
-`@platforma-sdk/ui-vue` is held at 1.83.0: 1.83.1 stopped publishing the
-component declaration files its own type entry re-exports, which breaks the
-facade build. The pin goes away once a fixed ui-vue is out.
+`@platforma-sdk/ui-vue` is on 1.83.3, which publishes the component
+declaration files its own type entry re-exports again — 1.83.1 had dropped
+them and broke the facade build.
