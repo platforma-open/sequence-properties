@@ -1,0 +1,58 @@
+test := import("@platforma-sdk/workflow-tengo:test")
+columns := import(":columns")
+
+VDJ_MODE := "antibody_tcr_universal"
+
+labelOf := func(cols, tsvCol) {
+	for col in cols {
+		if col.column == tsvCol {
+			return col.spec.annotations["pl7.app/label"]
+		}
+	}
+	return undefined
+}
+
+pairedCols := func(receptor) {
+	return columns.buildColumns({
+		mode: VDJ_MODE,
+		receptor: receptor,
+		chains: ["A", "B"],
+		fullChains: ["A", "B"],
+		hasFv: false
+	})
+}
+
+Test_buildColumns_chainAIsTheDiverseChain := func() {
+	pairs := [
+		{ receptor: "IG", a: "CDR-H3", b: "CDR-L3", fcA: "VH", fcB: "VL" },
+		{ receptor: "TCRAB", a: "CDR-β3", b: "CDR-α3", fcA: "Vβ", fcB: "Vα" },
+		{ receptor: "TCRGD", a: "CDR-δ3", b: "CDR-γ3", fcA: "Vδ", fcB: "Vγ" }
+	]
+	for pair in pairs {
+		cols := pairedCols(pair.receptor)
+		test.isEqual(pair.a + " Net Charge (pH 7)", labelOf(cols, "charge_A_CDR3"),
+			pair.receptor + " chain A CDR3 label")
+		test.isEqual(pair.b + " Net Charge (pH 7)", labelOf(cols, "charge_B_CDR3"),
+			pair.receptor + " chain B CDR3 label")
+		test.isEqual(pair.fcA + " Net Charge (pH 7)", labelOf(cols, "charge_A_VDJRegion"),
+			pair.receptor + " chain A full-chain label")
+		test.isEqual(pair.fcB + " Net Charge (pH 7)", labelOf(cols, "charge_B_VDJRegion"),
+			pair.receptor + " chain B full-chain label")
+	}
+}
+
+Test_buildColumns_chainDomainIsIndependentOfTheLabel := func() {
+	for receptor in ["IG", "TCRAB", "TCRGD"] {
+		cols := pairedCols(receptor)
+		for col in cols {
+			if col.column == "charge_A_CDR3" {
+				test.isEqual("A", col.spec.domain["pl7.app/vdj/scClonotypeChain"],
+					receptor + " chain A domain")
+			}
+			if col.column == "charge_B_CDR3" {
+				test.isEqual("B", col.spec.domain["pl7.app/vdj/scClonotypeChain"],
+					receptor + " chain B domain")
+			}
+		}
+	}
+}

@@ -57,7 +57,7 @@ export function defaultScatterAxes(
     };
   }
   // Antibody/TCR — IG/TCRAB/TCRGD, bulk or single-cell. Domain is identical
-  // across receptors; the user-facing label (CDR-H3 / CDR-α3 / CDR-γ3) is
+  // across receptors; the user-facing label (CDR-H3 / CDR-β3 / CDR-δ3) is
   // already encoded in spec annotations by the workflow (R13a).
   const domain = {
     "pl7.app/feature": "CDR3",

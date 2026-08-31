@@ -33,15 +33,15 @@ CHARGE_SHIFT_PH_TO := "6.0"
 CHARGE_SHIFT_DESC := "Net charge change from pH 7.4 (blood) to pH 6.0 (endosome). Negative values mean the molecule gains positive charge on acidification — the productive direction for histidine-driven pH switching. Histidine dominates (~−0.46 per His)."
 
 // Receptor + chain → human label fragments (CDR3 / full-chain).
-// Spec R13a: PColumn name and chain domain are unchanged; only the label varies.
+// Chain A is the D-recombining chain: heavy, beta, delta — never alpha or gamma.
 labelFragments := func(receptor, chain) {
 	if receptor == "TCRAB" {
-		if chain == "A" { return { cdr3: "CDR-α3", fullChain: "Vα" } }
-		if chain == "B" { return { cdr3: "CDR-β3", fullChain: "Vβ" } }
+		if chain == "A" { return { cdr3: "CDR-β3", fullChain: "Vβ" } }
+		if chain == "B" { return { cdr3: "CDR-α3", fullChain: "Vα" } }
 	}
 	if receptor == "TCRGD" {
-		if chain == "A" { return { cdr3: "CDR-γ3", fullChain: "Vγ" } }
-		if chain == "B" { return { cdr3: "CDR-δ3", fullChain: "Vδ" } }
+		if chain == "A" { return { cdr3: "CDR-δ3", fullChain: "Vδ" } }
+		if chain == "B" { return { cdr3: "CDR-γ3", fullChain: "Vγ" } }
 	}
 	// IG / unknown — antibody convention.
 	if chain == "A" { return { cdr3: "CDR-H3", fullChain: "VH" } }
@@ -180,15 +180,14 @@ buildWholeSeqColumns := func(feature, deltaLabel) {
 	return cols
 }
 
-// CDR-H3 (chain A) and CDR-L3 (chain B) carry different descriptions per
-// pcolumn-spec.md — different developability signals.
+// Chain A and chain B CDR3s carry different developability signals (pcolumn-spec.md).
 CDR3_CHARGE_DESC := {
 	A: "Strongly positive CDR3 charge correlates with polyreactivity via electrostatic interactions. No universal preferred direction in Lead Selection. IPC 2.0 peptide pKa set.",
-	B: "Strongly positive CDR-L3 charge contributes to paratope polyreactivity. Strongly negative charge is primarily a PK concern. No universal preferred direction. IPC 2.0 peptide pKa set."
+	B: "Strongly positive CDR3 charge contributes to paratope polyreactivity. Strongly negative charge is primarily a PK concern. No universal preferred direction. IPC 2.0 peptide pKa set."
 }
 CDR3_GRAVY_DESC := {
 	A: "Lower hydrophobicity preferred for developability. CDR3 GRAVY > 0 is an informal aggregation/polyreactivity heuristic.",
-	B: "Same aggregation and polyreactivity signal as CDR-H3 hydrophobicity; lower independent predictive weight. The TAP score uses combined 6-CDR GRAVY — CDR-L3 alone has limited independent validation."
+	B: "Same aggregation and polyreactivity signal as the paired chain's CDR3 hydrophobicity; lower independent predictive weight. For antibodies, the TAP score uses combined 6-CDR GRAVY — this CDR3 alone has limited independent validation."
 }
 
 buildCdr3Columns := func(receptor, chains) {
@@ -293,7 +292,7 @@ buildFullChainColumns := func(receptor, fullChains) {
 		cols += [makeCol("instability_" + chain + "_VDJRegion", "pl7.app/instabilityIndex", "Double",
 			fcLabel + " Instability Index", fcDom, {
 				"pl7.app/format": ".2f",
-				"pl7.app/description": "Guruprasad index, calibrated for in-vitro stability of soluble globular proteins via dipeptide composition. Weak predictor of antibody Tm — use as supplementary ranking aid.",
+				"pl7.app/description": "Guruprasad index, calibrated for in-vitro stability of soluble globular proteins via dipeptide composition. For antibodies, a weak predictor of Tm — use as supplementary ranking aid.",
 				"pl7.app/table/visibility": "optional",
 				"pl7.app/table/orderPriority": string(base - 600)
 			})]
@@ -301,7 +300,7 @@ buildFullChainColumns := func(receptor, fullChains) {
 			fcLabel + " Aliphatic Index", fcDom, {
 				"pl7.app/format": ".1f",
 				"pl7.app/min": "0",
-				"pl7.app/description": "Ikai aliphatic index, derived from globular mesophilic enzymes. Weak correlation with antibody Tm. No rankingOrder — high values can correlate with aggregation propensity.",
+				"pl7.app/description": "Ikai aliphatic index, derived from globular mesophilic enzymes. For antibodies, weak correlation with Tm. No rankingOrder — high values can correlate with aggregation propensity.",
 				"pl7.app/table/visibility": "optional",
 				"pl7.app/table/orderPriority": string(base - 700)
 			})]
