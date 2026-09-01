@@ -69,6 +69,19 @@ Test_buildColumns_tableOrderFollowsSpokenNaming := func() {
 	}
 }
 
+Test_chainToSlot_locusSeatsTheDiverseChainInA := func() {
+	seats := {
+		IGHeavy: "A", IGLight: "B", IGKappa: "B", IGLambda: "B",
+		TCRBeta: "A", TCRAlpha: "B",
+		TCRDelta: "A", TCRGamma: "B"
+	}
+	for locus, slot in seats {
+		test.isEqual(slot, columns.chainToSlot(locus), locus + " slot")
+	}
+	test.isEqual("A", columns.chainToSlot(undefined), "missing locus defaults to A")
+	test.isEqual("A", columns.chainToSlot("Nonsense"), "unknown locus defaults to A")
+}
+
 Test_buildColumns_chainDomainIsIndependentOfTheLabel := func() {
 	for receptor in ["IG", "TCRAB", "TCRGD"] {
 		cols := pairedCols(receptor)
