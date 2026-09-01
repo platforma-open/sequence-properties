@@ -126,7 +126,7 @@ def run(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
     - `aa_fraction` (DataFrame): long-format (entity_key, aminoAcid, value).
       Empty body when mode is not peptide.
     - `stats` (dict): dataset-level stats consumed by the workflow info layer
-      (e.g. R11c VHH detection — median CDR-H3 length per chain;
+      (e.g. R11c VHH detection — median CDR3 length per chain;
       R9 — peptide count below the Instability Index length floor).
     """
     mode = plan["mode"]

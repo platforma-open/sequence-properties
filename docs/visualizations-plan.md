@@ -86,7 +86,7 @@ Read modality from `app.model.outputs.info` (existing `WorkflowInfo` carries `mo
 - `mode === 'peptide'` → look up by `name === 'pl7.app/charge'/'hydrophobicity'` with `domain['pl7.app/feature'] === 'peptide'`.
 - antibody/TCR (any other mode) → look up by `name === 'pl7.app/charge'/'hydrophobicity'` with `domain['pl7.app/feature'] === 'CDR3'` and `domain['pl7.app/vdj/scClonotypeChain'] === 'A'`.
 
-The label naming (`CDR-H3 / CDR-α3 / CDR-γ3`) is already encoded in column annotations by the workflow (R13a) — graph-maker reads label from spec annotations, no UI-side label work required.
+The label naming (`CDR-H3 / CDR-β3 / CDR-δ3`) is already encoded in column annotations by the workflow (R13a) — graph-maker reads label from spec annotations, no UI-side label work required.
 
 #### Fallback (R19a, R20a)
 When the modality default is not present in `propertiesPfCols`, take the first one (histogram) or two (scatter) `PColumnIdAndSpec` entries that pass `dataColumnPredicate`, preserving the workflow's emission order.
