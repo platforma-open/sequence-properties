@@ -693,3 +693,66 @@ across both bands by `Test_buildColumns_tableOrderFollowsSpokenNaming` in
 - Spec requiring correction: `pcolumn-spec.md:295` and the slot-keyed
   orderPriority values through L240-L420.
 - Predecessor: SD-010. Default-axis spec: `README.md` R19, R20, R19a, R20a.
+
+---
+
+## SD-012: Derive The Chain Slot From The Locus On Bulk Input
+
+**Status:** applied
+**Date:** 2026-09-01
+**Affected file:** `workflow/src/columns.lib.tengo` (`chainToSlot`),
+`workflow/src/main.tpl.tengo` (per-column chain resolution)
+
+### Root cause
+
+Spec R13 reads chain identity from `pl7.app/vdj/scClonotypeChain`. Bulk MiXCR
+does not emit that key at all: it names the locus on the key axis via
+`pl7.app/vdj/chain` (`"IGHeavy"`, `"TCRAlpha"`, ...), one locus per dataset.
+The code filled the gap by assuming slot `"A"` for every bulk column.
+
+While slot `A` was believed to be alpha (pre-SD-010), that assumption happened
+to label bulk alpha datasets correctly and bulk beta ones wrongly. SD-010
+corrected the slot semantics, which flipped the victims rather than removing
+them: `TCRAlpha`, `TCRGamma`, `IGLight`, `IGKappa` and `IGLambda` inputs were
+labelled as their paired partner, and the R11b coverage messages named the
+wrong chain with them.
+
+SD-008 already derives the *receptor* from the same `pl7.app/vdj/chain` key.
+The locus determines the slot just as unambiguously, so the information needed
+was present and discarded.
+
+### Options considered
+
+**A. Derive the slot from the locus. [chosen]** `chainToSlot` maps the eight
+MiXCR loci onto the slot MiXCR itself seats them in, per its diversity-first
+`receptorInfos` ordering. Unknown or absent loci keep the previous `"A"`
+default, so non-MiXCR producers are unaffected.
+**B. Emit no chain domain on bulk input.** Truer to the data, since a bulk set
+has no pairing, but changes the column shape and breaks consumers keying on it.
+**C. Keep assuming `"A"`.** Leaves half of all bulk receptors mislabelled.
+
+### Decision
+
+**A.** The derivation already existed for the receptor (SD-008); extending it
+to the slot uses the same key and the same MiXCR rule.
+
+### Emitted domain changes on affected datasets
+
+This is not label-only. On bulk `TCRAlpha`, `TCRGamma`, `IGLight`, `IGKappa`
+and `IGLambda` input the emitted `pl7.app/vdj/scClonotypeChain` domain moves
+from `"A"` to `"B"`, which changes PColumn identity for those datasets. The new
+value is the correct one, and a consumer that matched the old `"A"` was
+matching a chain that was never there. Bulk `IGHeavy`, `TCRBeta` and `TCRDelta`
+are unchanged, as is all paired single-cell input.
+
+### Implementation
+
+`chainToSlot(chain)` in `columns.lib.tengo`, applied in `main.tpl.tengo` where
+`scClonotypeChain` is absent, preferring a per-column `pl7.app/vdj/chain` and
+falling back to the key axis. Covered by
+`Test_chainToSlot_locusSeatsTheDiverseChainInA`.
+
+### References
+
+- Predecessors: SD-008 (receptor from the same key), SD-010 (slot semantics).
+- Slot ordering: `blocks/mixcr-clonotyping/workflow/src/process.tpl.tengo:39-44`.

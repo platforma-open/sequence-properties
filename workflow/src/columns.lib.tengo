@@ -11,6 +11,9 @@
 //                                       at pframe-build time.
 //   - `aaFractionColumn(spec, feat)` — 2-axis AA-fraction column descriptor
 //                                       (whole-sequence modes: peptide / amplicon).
+//   - `chainToSlot(chain)`           — MiXCR locus ("TCRAlpha", "IGLight", ...)
+//                                       → the A/B slot it occupies, for bulk
+//                                       input that carries no scClonotypeChain.
 //   - `cloneSpec(spec, dExtras, aExtras)` — spec-cloning helper used by the
 //                                       caller to layer blockId / isOutput /
 //                                       any other per-consumer overrides.
@@ -52,6 +55,25 @@ labelFragments := func(receptor, chain) {
 displaysFirst := func(receptor, chain) {
 	if receptor == "TCRAB" || receptor == "TCRGD" { return chain == "B" }
 	return chain == "A"
+}
+
+// Bulk input names its locus but has no slot; MiXCR seats the D-recombining chain in A.
+CHAIN_TO_SLOT := {
+	IGHeavy: "A",
+	IGLight: "B",
+	IGKappa: "B",
+	IGLambda: "B",
+	TCRBeta: "A",
+	TCRAlpha: "B",
+	TCRDelta: "A",
+	TCRGamma: "B"
+}
+
+chainToSlot := func(chain) {
+	if chain == undefined { return "A" }
+	s := CHAIN_TO_SLOT[chain]
+	if s == undefined { return "A" }
+	return s
 }
 
 // Build a single output column descriptor consumed by xsv.importFile.
@@ -480,5 +502,6 @@ aaFractionColumn := func(keyAxisSpec, feature) {
 export ll.toStrict({
 	buildColumns: buildColumns,
 	aaFractionColumn: aaFractionColumn,
+	chainToSlot: chainToSlot,
 	cloneSpec: cloneSpec
 })
