@@ -16,25 +16,30 @@
  *      runnable end-to-end. Used by the canary test and by
  *      `setupTwoSeqPropsCoInstances` to seed the two-instance dedup test.
  *
- * V3 plumbing: both upstreams (`samples-and-data@^1.17` and
- * `mixcr-clonotyping-2@^2.18`) are `PlatformaV3` blocks and reject
+ * V3 plumbing: both upstreams (`samples-and-data@^1.20` and
+ * `mixcr-clonotyping-2@^2.22`) are `PlatformaV3` blocks and reject
  * `setBlockArgs` with `ModelAPIVersionMismatchError`. The helpers below use
  * `mutateBlockStorage({ operation: 'update-block-data', value: <BlockData> })`
  * which is the V3 update path.
+ *
+ * Both upstreams are slim facades, so a block is added by its exported
+ * `<Block>BlockPointer` and not by the retired `blockSpec`. The block-data
+ * literals below carry no `satisfies <Block>BlockData`: a facade bundles its
+ * own copy of the brand symbols behind `PlId` and `CanonicalizedJson`, so
+ * those types never unify with our catalog SDK's. `mutateBlockStorage` takes
+ * the value as `unknown` and the brands are erased at runtime.
  *
  * Each blockTest spins up a fresh platforma container, so co-locating
  * multiple assertions per test is the standard cost optimization.
  */
 
-import { blockSpec as samplesAndDataBlockSpec } from '@platforma-open/milaboratories.samples-and-data';
-import type { BlockData as SamplesAndDataBlockData } from '@platforma-open/milaboratories.samples-and-data.model';
-import { blockSpec as mixcrClonotypingBlockSpec } from '@platforma-open/milaboratories.mixcr-clonotyping-2';
-import type { BlockData as MixcrClonotypingBlockData } from '@platforma-open/milaboratories.mixcr-clonotyping-2.model';
-import { blockSpec as seqPropsBlockSpec } from 'this-block';
-import { uniquePlId } from '@platforma-sdk/model';
-import type { ML, RawHelpers } from '@platforma-sdk/test';
-import { awaitStableState } from '@platforma-sdk/test';
-import type { expect as vitestExpect } from 'vitest';
+import { MixcrClonotyping2BlockPointer } from "@platforma-open/milaboratories.mixcr-clonotyping-2";
+import { SamplesAndDataBlockPointer } from "@platforma-open/milaboratories.samples-and-data";
+import { createPlDataTableStateV2, uniquePlId } from "@platforma-sdk/model";
+import { SequencePropertiesBlockPointer } from "this-block";
+import type { ML, RawHelpers } from "@platforma-sdk/test";
+import { awaitStableState } from "@platforma-sdk/test";
+import type { expect as vitestExpect } from "vitest";
 
 export type TestCtx = {
   rawPrj: ML.Project;
@@ -46,14 +51,17 @@ export type TestCtx = {
 /**
  * Add the sequence-properties block under test.
  */
-export async function addSequenceProperties(ctx: TestCtx, label = 'Sequence Properties'): Promise<string> {
-  return await ctx.rawPrj.addBlock(label, seqPropsBlockSpec);
+export async function addSequenceProperties(
+  ctx: TestCtx,
+  label = "Sequence Properties",
+): Promise<string> {
+  return await ctx.rawPrj.addBlock(label, SequencePropertiesBlockPointer);
 }
 
 /**
  * Configure samples-and-data with a one-sample fastq dataset. Uses V3
  * mutateBlockStorage with the full BlockData payload (V1 setBlockArgs is
- * rejected by samples-and-data@^1.17 — `PlatformaV3` model).
+ * rejected by samples-and-data@^1.20 — `PlatformaV3` model).
  */
 async function configureSamplesAndData(
   ctx: TestCtx,
@@ -67,19 +75,19 @@ async function configureSamplesAndData(
   const r2Handle = await helpers.getLocalFileHandle(opts.r2Path);
 
   await rawPrj.mutateBlockStorage(sndBlockId, {
-    operation: 'update-block-data',
+    operation: "update-block-data",
     value: {
       metadata: [],
       sampleIds: [sample1Id],
-      sampleLabelColumnLabel: 'Sample Name',
-      sampleLabels: { [sample1Id]: 'Sample 1' },
+      sampleLabelColumnLabel: "Sample Name",
+      sampleLabels: { [sample1Id]: "Sample 1" },
       datasets: [
         {
           id: dataset1Id,
-          label: 'Dataset 1',
+          label: "Dataset 1",
           content: {
-            type: 'Fastq',
-            readIndices: ['R1', 'R2'],
+            type: "Fastq",
+            readIndices: ["R1", "R2"],
             gzipped: true,
             data: { [sample1Id]: { R1: r1Handle, R2: r2Handle } },
           },
@@ -88,7 +96,7 @@ async function configureSamplesAndData(
       h5adFilesToPreprocess: [],
       seuratFilesToPreprocess: [],
       suggestedImport: false,
-    } satisfies SamplesAndDataBlockData,
+    },
   });
 }
 
@@ -109,45 +117,30 @@ async function configureMixcrClonotyping(
   // After samples-and-data Done, clonotyping's inputOptions populates from
   // the result pool. Wait for it to stabilize, then take the first option.
   type ClonotypingInputOption = { ref: { __isRef: true; blockId: string; name: string } };
-  const clonotypingState = await awaitStableState(
-    rawPrj.getBlockState(clonotypingBlockId),
-    25000,
-  );
+  const clonotypingState = await awaitStableState(rawPrj.getBlockState(clonotypingBlockId), 25000);
   const inputOptions = (
     clonotypingState.outputs as Record<string, { value?: ClonotypingInputOption[] }>
   ).inputOptions?.value;
   if (!inputOptions || inputOptions.length === 0) {
-    throw new Error('mixcr-clonotyping-2 inputOptions did not populate after samples-and-data');
+    throw new Error("mixcr-clonotyping-2 inputOptions did not populate after samples-and-data");
   }
 
-  // mixcr-clonotyping-2@2.18 pins @platforma-sdk/model@1.63.1, whose
-  // PlDataTableStateV2 is version 5. Our catalog SDK (1.77.0) exposes
-  // createPlDataTableStateV2 that emits version 7. The two shapes are
-  // structurally close, but the version literal differs and TS treats
-  // them as incompatible. Constructing the v5 literal directly avoids
-  // the cross-version helper and keeps the type fully checked.
-  const tableState: MixcrClonotypingBlockData['tableState'] = {
-    version: 5,
-    stateCache: [],
-    pTableParams: {
-      sourceId: null,
-      hiddenColIds: null,
-      filters: null,
-      sorting: [],
-    },
-  };
+  // mixcr-clonotyping-2@^2.22 is built against a current SDK, so its
+  // tableState is the same PlDataTableStateV2 shape our catalog SDK emits.
+  // The hand-rolled version-5 literal the old pin needed is gone.
+  const tableState = createPlDataTableStateV2();
 
   await rawPrj.mutateBlockStorage(clonotypingBlockId, {
-    operation: 'update-block-data',
+    operation: "update-block-data",
     value: {
-      defaultBlockLabel: '',
-      customBlockLabel: '',
+      defaultBlockLabel: "",
+      customBlockLabel: "",
       input: inputOptions[0].ref,
-      preset: { type: 'name', name: preset },
+      preset: { type: "name", name: preset },
       chains,
       tableState,
-      runMode: 'full',
-    } satisfies MixcrClonotypingBlockData,
+      runMode: "full",
+    },
   });
 }
 
@@ -165,12 +158,15 @@ export async function setupMixcrAnchor(
     r2Path: string;
   },
 ): Promise<{ sndBlockId: string; clonotypingBlockId: string; seqPropsBlockId: string }> {
-  const preset = opts.preset ?? '10x-sc-xcr-vdj-rhapsody';
-  const chains = opts.chains ?? ['IGHeavy', 'IGLight'];
+  const preset = opts.preset ?? "10x-sc-xcr-vdj-rhapsody";
+  const chains = opts.chains ?? ["IGHeavy", "IGLight"];
 
   const { rawPrj, helpers } = ctx;
-  const sndBlockId = await rawPrj.addBlock('Samples & Data', samplesAndDataBlockSpec);
-  const clonotypingBlockId = await rawPrj.addBlock('MiXCR Clonotyping', mixcrClonotypingBlockSpec);
+  const sndBlockId = await rawPrj.addBlock("Samples & Data", SamplesAndDataBlockPointer);
+  const clonotypingBlockId = await rawPrj.addBlock(
+    "MiXCR Clonotyping",
+    MixcrClonotyping2BlockPointer,
+  );
   const seqPropsBlockId = await addSequenceProperties(ctx);
 
   await configureSamplesAndData(ctx, sndBlockId, opts);

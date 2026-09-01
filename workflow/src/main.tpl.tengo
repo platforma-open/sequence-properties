@@ -1,7 +1,7 @@
 // Sequence Properties — workflow root.
 //
-// Detects modality (peptide vs antibody/TCR), collects amino-acid sequence
-// columns, builds a per-entity TSV, runs the Python computation step,
+// Picks the analysis path for the input (modality.lib.tengo), collects
+// amino-acid sequence columns, builds a per-entity TSV, runs the Python step,
 // imports its outputs into a unified PColumn pFrame, and defers the
 // info-blob assembly to info.tpl.tengo (which waits on Python's stats).
 
@@ -19,6 +19,7 @@ maps := import("@platforma-sdk/workflow-tengo:maps")
 constants := import("@platforma-sdk/workflow-tengo:constants")
 messages := import(":messages")
 columnSpecs := import(":columns")
+modality := import(":modality")
 
 infoTpl := assets.importTemplate(":info")
 
@@ -32,34 +33,6 @@ canonicalJsonResource := func(value) {
 }
 
 REQUIRED_FEATURES := ["FR1", "CDR1", "FR2", "CDR2", "FR3", "CDR3", "FR4"]
-
-detectMode := func(axisSpec) {
-	dom := axisSpec.domain
-	if axisSpec.name == "pl7.app/variantKey" {
-		if dom != undefined && dom["pl7.app/peptide/extractionRunId"] != undefined {
-			return "peptide"
-		}
-		// synthetic-repertoire-profiler keys variants on the same axis but stamps
-		// pl7.app/repertoire/extractionRunId. Its whole-variant sequence gets the
-		// same whole-sequence property treatment as a peptide (see SEQ-mode below).
-		if dom != undefined && dom["pl7.app/repertoire/extractionRunId"] != undefined {
-			return "amplicon"
-		}
-		if dom != undefined && dom["pl7.app/vdj/clonotypingRunId"] != undefined {
-			return "antibody_tcr_universal"
-		}
-	}
-	if axisSpec.name == "pl7.app/vdj/cloneId" {
-		return "antibody_tcr_legacy_bulk"
-	}
-	if axisSpec.name == "pl7.app/vdj/clonotypeKey" {
-		return "antibody_tcr_legacy_bulk"
-	}
-	if axisSpec.name == "pl7.app/vdj/scClonotypeKey" {
-		return "antibody_tcr_legacy_sc"
-	}
-	return ""
-}
 
 contains := func(arr, x) {
 	for v in arr {
@@ -172,7 +145,7 @@ wf.body(func(args) {
 	keyAxisSpec := undefined
 	mode := ""
 	for i, axisSpec in axes {
-		m := detectMode(axisSpec)
+		m := modality.detectMode(axisSpec)
 		if m != "" {
 			keyAxisIdx = i
 			keyAxisSpec = axisSpec
@@ -347,9 +320,15 @@ wf.body(func(args) {
 		if receptor == "TCRGD" {
 			infoMessages += [messages.gammaDeltaTcr()]
 		}
-		// R13b: warn when no recognised receptor was seen — defaults to IG.
+		// R13b: warn when no recognised receptor was seen — defaults to IG. A producer
+		// that declared its modality has no receptor to emit, so it gets wording that
+		// does not send the user after a MiXCR preset they never used.
 		if !receptorSeen && anyChain {
-			infoMessages += [messages.receptorNotDetected()]
+			if modality.isDeclared(keyAxisSpec) {
+				infoMessages += [messages.receptorNotDeclared()]
+			} else {
+				infoMessages += [messages.receptorNotDetected()]
+			}
 		}
 	}
 
