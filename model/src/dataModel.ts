@@ -1,4 +1,5 @@
 import type { GraphMakerState } from "@milaboratories/graph-maker";
+import { kind } from "@platforma-open/milaboratories.sequence-properties.kind";
 import { createPlDataTableStateV2, DataModelBuilder } from "@platforma-sdk/model";
 import type { BlockData, BlockDataV1, BlockDataV2 } from "./types";
 
@@ -29,7 +30,7 @@ export const migrateV2toV2_1 = (v2: BlockDataV2): BlockData => ({
   customBlockLabel: v2.customBlockLabel ?? "",
 });
 
-export const blockDataModel = new DataModelBuilder()
+export const blockDataModel = new DataModelBuilder({ kind })
   .from<BlockDataV1>("Ver_2026_04_28")
   // Already-deployed step. Future field additions must go into a new step
   // below — editing this body has no effect on projects already tagged
@@ -40,7 +41,11 @@ export const blockDataModel = new DataModelBuilder()
   // projection (resolveTraceLabel in label.ts) requires both fields to be
   // strings, never undefined.
   .migrate<BlockData>("Ver_2026_05_18", migrateV2toV2_1)
-  .init(() => ({
+  // `params` carries the kind's init-params contract, and is undefined when the
+  // block is created outside a template. `inputAnchor` is the only field a
+  // creator supplies; everything else is view state that always defaults.
+  .init(({ params }) => ({
+    inputAnchor: params?.inputAnchor,
     tableState: createPlDataTableStateV2(),
     defaultBlockLabel: "",
     customBlockLabel: "",
