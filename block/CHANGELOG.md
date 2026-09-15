@@ -1,5 +1,11 @@
 ## 1.0.0
 
+## 1.7.1
+
+### Patch Changes
+
+- 02bc181: Remove old docs
+
 ## 1.7.0
 
 ### Minor Changes
