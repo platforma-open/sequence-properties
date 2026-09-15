@@ -683,3 +683,220 @@ is `pl-tengo test`, matching `blocks/repertoire-labeling`.
 - Cross-block survey and spec atom A-0060: `synthetic-repertoire-profiler/dms-modality.md`.
 - Reference migration: `antibody-sequence-liabilities/model/src/index.ts`
   (`declaredModality`), `workflow/src/main.tpl.tengo`.
+
+---
+
+## SD-011: Chain Letter "A" Is The D-Recombining Chain, Not Alpha/Gamma
+
+**Status:** applied
+**Date:** 2026-08-31
+**Affected file:** `workflow/src/columns.lib.tengo` (`labelFragments`),
+`workflow/src/main.tpl.tengo` (`chainLabel`)
+
+### Symptom
+
+On paired αβ TCR input the CDR3 and full-chain labels named the wrong chain:
+the column labelled `CDR-α3 Net Charge (pH 7)` carried the beta chain's
+values, and `CDR-β3` carried alpha's. Same inversion on γδ (`CDR-γ3` showed
+delta), and in the R11b partial-coverage info messages ("…found for alpha
+chain" on beta data).
+
+### Root cause
+
+The spec states the opposite mapping. `README.md` R13 (L210-212) and
+`pcolumn-spec.md` (L204-218) both assert that for `TCRAB` chain `"A"` is TRA
+(alpha) and for `TCRGD` chain `"A"` is TRG (gamma), with an explicit note:
+*"for αβ TCR, chain 'A' is alpha, not beta."* The implementation followed the
+spec.
+
+The producer does the reverse. MiXCR orders a receptor's chain slots by
+diversity — the D-recombining chain first — and the slot index is what becomes
+the `pl7.app/vdj/scClonotypeChain` letter:
+
+```tengo
+// mixcr-clonotyping/workflow/src/process.tpl.tengo:39-44
+// Chain with higher diversity go first
+"IG":    { chains: ["IGHeavy", "IGLight"] },
+"TCRAB": { chains: ["TCRBeta", "TCRAlpha"] },
+"TCRGD": { chains: ["TCRDelta", "TCRGamma"] }
+```
+
+So `"A"` is heavy / beta / delta. The spec's cited source
+(`antibody-tcr-lead-selection/workflow/src/utils.lib.tengo`) is itself
+inverted for TCR and is the origin of the error. R13 carried a pre-M1 gate
+requiring this mapping be verified against real MiXCR output; this is that
+verification.
+
+### Trigger
+
+Any paired TCR dataset — αβ or γδ. Confirmed on single-cell TCRAB.
+
+### Impact (before fix)
+
+Labels only. PColumn `name` values and the `pl7.app/vdj/scClonotypeChain`
+domain (`"A"`/`"B"`) were correct throughout, so downstream blocks selecting
+by spec were unaffected. A user reading the table, or picking a default
+scatter axis by label, saw one chain's values attributed to the other.
+
+### Options considered
+
+**A. Follow the producer; correct the labels. [chosen]**
+Two label maps change. Names and domains untouched, so no schema impact and
+no downstream re-keying.
+
+**B. Follow the spec and leave the labels as they were.**
+Requires MiXCR to renumber its chain slots — out of scope, and would break
+every block already reading the A/B convention.
+
+**C. Emit the concrete chain name instead of a slot-derived label.**
+Removes the ambiguity at the source, but changes every TCR column label and
+needs the concrete chain on paired input, which single-cell does not carry
+per column.
+
+### Decision
+
+**A.** Three shipped components independently encode A = D-recombining chain:
+the producer (`mixcr-clonotyping` above), `import-vdj-data`
+(`bare-set-specs.lib.tengo:64-71`, `PAIRED_CHAIN_DOMAIN`), and
+`antibody-sequence-liabilities` (`main.tpl.tengo:25-29`, with the same
+rationale in a comment). The SDK naming-conventions guide agrees. The spec and
+`antibody-tcr-lead-selection` are the outliers.
+
+### Implementation
+
+`labelFragments(receptor, chain)` in `columns.lib.tengo` and `chainLabel(ch)`
+in `main.tpl.tengo`. Covered by `workflow/src/columns.test.tengo`, which pins
+the slot→label mapping for all three receptors and asserts the chain domain
+stays independent of the label.
+
+### References
+
+- Spec sections requiring correction: `README.md` R13 (L210-212), the R13a
+  label table (L218), L451, the γδ edge-case row (L587); `pcolumn-spec.md`
+  L204-218.
+- Producer: `blocks/mixcr-clonotyping/workflow/src/process.tpl.tengo:39-44`.
+- Public docs: `docs/docs.platforma.bio/docs/30-sdk/100-vdj-guides/60-naming-conventions.md`.
+- Still inverted, tracked separately:
+  `antibody-tcr-lead-selection/workflow/src/utils.lib.tengo:702-705`.
+
+---
+
+## SD-012: Table Order Follows Spoken Chain Naming, Not Slot Order
+
+**Status:** applied
+**Date:** 2026-08-31
+**Affected file:** `workflow/src/columns.lib.tengo` (`displaysFirst`,
+`buildCdr3Columns`, `buildFullChainColumns`)
+
+### Root cause
+
+`pl7.app/table/orderPriority` was keyed to the chain *slot* — `"A"` always took
+the higher band — and the spec fixes those numbers slot-wise from the IG
+perspective (`pcolumn-spec.md:295`: `"67000"  // 66000 for light chain`). For IG
+that is invisible, since heavy is both the first-named and the slot-`A` chain.
+For TCR the two rules diverge, because slot `A` is the D-recombining chain
+(SD-011) — beta, not alpha. The table therefore led with `CDR-β3`, leaking
+MiXCR's diversity-first slot assignment into the column order exactly as the
+labels did before SD-011.
+
+### Options considered
+
+**A. Order by the receptor's spoken naming. [chosen]** Assign the existing
+bands by a (receptor, chain) display rank instead of the slot letter. IG keeps
+heavy-then-light; no name, domain or value changes.
+**B. Leave ordering on the slot.** Matches the spec's literal numbers, but
+keeps a producer artifact in front of the scientist.
+**C. Order by slot and rename labels to match.** Rejected — re-introduces the
+SD-011 bug.
+
+### Decision
+
+**A.** Slot identity belongs to the producer; the label and the reading order
+are the user-facing surface. SD-011 established that for labels, and column
+position is the same surface reached a different way. Nothing cross-block is
+broken: `import-vdj-data` keys `orderPriority` per region, identical for both
+chains (`bare-set-specs.lib.tengo:331`), so its chain order is incidental.
+
+### Deliberately not changed: the default plot axis
+
+`ui/src/utils/scalarColumns.ts` still selects `scClonotypeChain: "A"` for the
+default scatter and histogram source, per R19/R20. Table order is a reading
+convention; the default plotted chain is an analytical one, and beta/delta carry
+the greater CDR3 diversity. The chart labels its own axes, so the divergence is
+unambiguous. The R19a/R20a fallback reads *emission* order — unchanged here — so
+it also still lands on chain `A`.
+
+### Implementation
+
+`displaysFirst(receptor, chain)` in `columns.lib.tengo`, pinned per receptor
+across both bands by `Test_buildColumns_tableOrderFollowsSpokenNaming` in
+`workflow/src/columns.test.tengo`.
+
+### References
+
+- Spec requiring correction: `pcolumn-spec.md:295` and the slot-keyed
+  orderPriority values through L240-L420.
+- Predecessor: SD-011. Default-axis spec: `README.md` R19, R20, R19a, R20a.
+
+---
+
+## SD-013: Derive The Chain Slot From The Locus On Bulk Input
+
+**Status:** applied
+**Date:** 2026-09-01
+**Affected file:** `workflow/src/columns.lib.tengo` (`chainToSlot`),
+`workflow/src/main.tpl.tengo` (per-column chain resolution)
+
+### Root cause
+
+Spec R13 reads chain identity from `pl7.app/vdj/scClonotypeChain`. Bulk MiXCR
+does not emit that key at all: it names the locus on the key axis via
+`pl7.app/vdj/chain` (`"IGHeavy"`, `"TCRAlpha"`, ...), one locus per dataset.
+The code filled the gap by assuming slot `"A"` for every bulk column.
+
+While slot `A` was believed to be alpha (pre-SD-011), that assumption happened
+to label bulk alpha datasets correctly and bulk beta ones wrongly. SD-011
+corrected the slot semantics, which flipped the victims rather than removing
+them: `TCRAlpha`, `TCRGamma`, `IGLight`, `IGKappa` and `IGLambda` inputs were
+labelled as their paired partner, and the R11b coverage messages named the
+wrong chain with them.
+
+SD-008 already derives the *receptor* from the same `pl7.app/vdj/chain` key.
+The locus determines the slot just as unambiguously, so the information needed
+was present and discarded.
+
+### Options considered
+
+**A. Derive the slot from the locus. [chosen]** `chainToSlot` maps the eight
+MiXCR loci onto the slot MiXCR itself seats them in, per its diversity-first
+`receptorInfos` ordering. Unknown or absent loci keep the previous `"A"`
+default, so non-MiXCR producers are unaffected.
+**B. Emit no chain domain on bulk input.** Truer to the data, since a bulk set
+has no pairing, but changes the column shape and breaks consumers keying on it.
+**C. Keep assuming `"A"`.** Leaves half of all bulk receptors mislabelled.
+
+### Decision
+
+**A.** The derivation already existed for the receptor (SD-008); extending it
+to the slot uses the same key and the same MiXCR rule.
+
+### Emitted domain changes on affected datasets
+
+This is not label-only. On bulk `TCRAlpha`, `TCRGamma`, `IGLight`, `IGKappa`
+and `IGLambda` input the emitted `pl7.app/vdj/scClonotypeChain` domain moves
+from `"A"` to `"B"`, which changes PColumn identity for those datasets. The new
+value is the correct one, and a consumer that matched the old `"A"` was
+matching a chain that was never there. Bulk `IGHeavy`, `TCRBeta` and `TCRDelta`
+are unchanged, as is all paired single-cell input.
+
+### Implementation
+
+`chainToSlot(chain)` in `columns.lib.tengo`, applied in `main.tpl.tengo` where
+`scClonotypeChain` is absent, preferring a per-column `pl7.app/vdj/chain` and
+falling back to the key axis. Covered by
+`Test_chainToSlot_locusSeatsTheDiverseChainInA`.
+
+### References
+
+- Predecessors: SD-008 (receptor from the same key), SD-011 (slot semantics).
+- Slot ordering: `blocks/mixcr-clonotyping/workflow/src/process.tpl.tengo:39-44`.

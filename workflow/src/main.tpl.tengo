@@ -175,10 +175,12 @@ wf.body(func(args) {
 	// Spec deviation SD-008 — bulk MiXCR axes lack `pl7.app/vdj/receptor` but
 	// carry `pl7.app/vdj/chain`; derive receptor from chain when receptor is
 	// absent. See docs/spec-deviations.md.
+	axisChain := undefined
 	if keyAxisSpec.domain != undefined {
+		axisChain = keyAxisSpec.domain["pl7.app/vdj/chain"]
 		r := resolveReceptor(
 			keyAxisSpec.domain["pl7.app/vdj/receptor"],
-			keyAxisSpec.domain["pl7.app/vdj/chain"]
+			axisChain
 		)
 		if r.seen {
 			receptor = r.value
@@ -241,8 +243,9 @@ wf.body(func(args) {
 
 			chain := d["pl7.app/vdj/scClonotypeChain"]
 			if chain == undefined || chain == "" {
-				// Bulk MiXCR data without chain annotation — assume primary chain "A".
-				chain = "A"
+				// Bulk has no slot; derive it from the locus so the label names the real chain.
+				colChain := d["pl7.app/vdj/chain"]
+				chain = columnSpecs.chainToSlot(colChain != undefined ? colChain : axisChain)
 			}
 
 			// Same receptor value is expected on every input column; last seen wins.
@@ -264,12 +267,12 @@ wf.body(func(args) {
 	// Receptor-aware chain label for user-facing messages (R11b).
 	chainLabel := func(ch) {
 		if receptor == "TCRAB" {
-			if ch == "A" { return "alpha" }
-			if ch == "B" { return "beta" }
+			if ch == "A" { return "beta" }
+			if ch == "B" { return "alpha" }
 		}
 		if receptor == "TCRGD" {
-			if ch == "A" { return "gamma" }
-			if ch == "B" { return "delta" }
+			if ch == "A" { return "delta" }
+			if ch == "B" { return "gamma" }
 		}
 		// IG / unknown — antibody convention.
 		if ch == "A" { return "heavy" }
@@ -360,7 +363,7 @@ wf.body(func(args) {
 	// Python step contract: reads input.tsv + plan.json; writes properties.tsv,
 	// plus aa_fraction.tsv in peptide mode (empty body in antibody/TCR mode), plus
 	// stats.json (dataset-level scalars consumed by the info layer — e.g. R11c
-	// median CDR-H3 length per chain).
+	// median CDR3 length per chain).
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
 	// 12GiB (up from the 4GiB default): the vectorized step materializes full-N
 	// count matrices, so peak memory scales with clone count. cpu(1) is
