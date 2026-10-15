@@ -1,10 +1,18 @@
 import { kind } from "@platforma-open/milaboratories.sequence-properties.kind";
-import type { InferOutputsType, PColumnIdAndSpec, PFrameHandle } from "@platforma-sdk/model";
+import type {
+  DatasetOption,
+  InferOutputsType,
+  PColumnIdAndSpec,
+  PFrameHandle,
+} from "@platforma-sdk/model";
 import {
   Annotation,
   BlockModelV3,
+  buildDatasetOptions,
+  createGlobalPObjectId,
   createPFrameForGraphs,
   createPlDataTableV2,
+  isPColumnSpec,
 } from "@platforma-sdk/model";
 import { blockDataModel } from "./dataModel";
 import { resolveSubtitle, resolveTraceLabel } from "./label";
@@ -14,27 +22,14 @@ export type * from "@milaboratories/helpers";
 export { blockDataModel } from "./dataModel";
 export type { BlockArgs, BlockData, WorkflowInfo, WorkflowMode, WorkflowReceptor } from "./types";
 
-const inputAnchorSpecs = [
-  // Peptide mode — universal naming
-  {
-    axes: [{ name: "pl7.app/sampleId" }, { name: "pl7.app/variantKey" }],
-    annotations: { "pl7.app/isAnchor": "true" },
-  },
-  // Antibody/TCR — legacy MiXCR bulk (cloneId per spec; clonotypeKey per current MiXCR output)
-  {
-    axes: [{ name: "pl7.app/sampleId" }, { name: "pl7.app/vdj/cloneId" }],
-    annotations: { "pl7.app/isAnchor": "true" },
-  },
-  {
-    axes: [{ name: "pl7.app/sampleId" }, { name: "pl7.app/vdj/clonotypeKey" }],
-    annotations: { "pl7.app/isAnchor": "true" },
-  },
-  // Antibody/TCR — legacy MiXCR single-cell
-  {
-    axes: [{ name: "pl7.app/sampleId" }, { name: "pl7.app/vdj/scClonotypeKey" }],
-    annotations: { "pl7.app/isAnchor": "true" },
-  },
-];
+// Key axes of the datasets this block accepts: peptides and variants, legacy bulk clones, bulk
+// and single-cell clonotypes.
+const DATASET_KEY_AXES: ReadonlySet<string> = new Set([
+  "pl7.app/variantKey",
+  "pl7.app/vdj/cloneId",
+  "pl7.app/vdj/clonotypeKey",
+  "pl7.app/vdj/scClonotypeKey",
+]);
 
 export const platforma = BlockModelV3.create({ dataModel: blockDataModel, kind })
   .args<BlockArgs>((data) => {
@@ -44,13 +39,36 @@ export const platforma = BlockModelV3.create({ dataModel: blockDataModel, kind }
     return {
       inputAnchor: data.inputAnchor,
       traceLabel: resolveTraceLabel(data),
+      // The subset's canonical column id, which the workflow stamps as the outputs'
+      // `pl7.app/inputSubset`. Absent without a filter, so unfiltered args are unchanged.
+      ...(data.filterRef !== undefined && {
+        inputFilter: createGlobalPObjectId(data.filterRef.blockId, data.filterRef.name),
+      }),
     };
   })
-  // Inverse of the kind's init-params contract: the same single field `init`
+  // Inverse of the kind's init-params contract: the same fields `init`
   // consumes. The label fields and the table / plot states stay out — they are
   // view state, not configuration a template carries.
-  .templateParams((data) => ({ inputAnchor: data.inputAnchor }))
-  .output("inputOptions", (ctx) => ctx.resultPool.getOptions(inputAnchorSpecs))
+  .templateParams((data) => ({ inputAnchor: data.inputAnchor, filterRef: data.filterRef }))
+  // Datasets, each with its subset columns (e.g. Repertoire Labeling labels) as filters.
+  .output(
+    "inputOptions",
+    (ctx): DatasetOption[] =>
+      buildDatasetOptions(ctx, {
+        primary: (spec) =>
+          isPColumnSpec(spec) &&
+          spec.annotations?.["pl7.app/isAnchor"] === "true" &&
+          spec.axesSpec.length === 2 &&
+          spec.axesSpec[0].name === "pl7.app/sampleId" &&
+          DATASET_KEY_AXES.has(spec.axesSpec[1].name),
+        // Only subsets keyed by the entity axis alone: properties are per entity.
+        filter: (spec) =>
+          isPColumnSpec(spec) &&
+          spec.axesSpec.length === 1 &&
+          DATASET_KEY_AXES.has(spec.axesSpec[0].name),
+        requireEnrichments: false,
+      }) ?? [],
+  )
   .output("inputSpec", (ctx) =>
     ctx.data.inputAnchor ? ctx.resultPool.getPColumnSpecByRef(ctx.data.inputAnchor) : undefined,
   )
