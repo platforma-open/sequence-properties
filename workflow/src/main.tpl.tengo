@@ -20,6 +20,7 @@ constants := import("@platforma-sdk/workflow-tengo:constants")
 messages := import(":messages")
 columnSpecs := import(":columns")
 modality := import(":modality")
+json := import("json")
 
 infoTpl := assets.importTemplate(":info")
 
@@ -126,6 +127,11 @@ wf.prepare(func(args) {
 		}
 	}, "universalSequences")
 
+	// Optional subset column picked alongside the dataset (PlDatasetSelector)
+	if !is_undefined(args.inputFilter) {
+		bb.addRef(json.decode(args.inputFilter))
+	}
+
 	return { columns: bb.build() }
 })
 
@@ -190,7 +196,35 @@ wf.body(func(args) {
 
 	chainsFound := {} // chain -> { feature -> 1 }
 
-	seqTb := pframes.tsvFileBuilder()
+	// Optional subset: only its entities enter the analysis. The trace roots in the filter
+	// so downstream labels name it.
+	filterColumn := undefined
+	traceSpec := datasetSpec
+	if !is_undefined(args.inputFilter) {
+		f := bundle.getColumn(json.decode(args.inputFilter))
+		filterColumn = { spec: f.spec, data: f.data }
+		traceSpec = f.spec
+	}
+
+	// Without a subset, the plain builder (unfiltered runs unchanged). With one, every
+	// column is its own filtered primary, full-joined: an entity may lack a chain or region.
+	seqTb := undefined
+	addSeqColumn := undefined
+	if is_undefined(filterColumn) {
+		seqTb = pframes.tsvFileBuilder()
+		addSeqColumn = seqTb.add
+	} else {
+		seqTb = pframes.tableBuilder("tsv").setJoinMode("full")
+		nSeqColumns := 0
+		addSeqColumn = func(column, opts) {
+			seqTb.addPrimary("col" + string(nSeqColumns), {
+				__isPrimaryRef: "v1",
+				column: column,
+				filter: filterColumn
+			}, opts)
+			nSeqColumns += 1
+		}
+	}
 	seqTb.setAxisHeader(keyAxisSpec, "entity_key")
 
 	if wholeSeqMode {
@@ -206,7 +240,7 @@ wf.body(func(args) {
 				ll.panic("amplicon mode detected but no whole-variant amino-acid sequence column (feature 'amplicon-sequence') was found in the input dataset")
 			}
 		}
-		seqTb.add(bundle.getColumn(seqCols[0].key), { header: "sequence" })
+		addSeqColumn(bundle.getColumn(seqCols[0].key), { header: "sequence" })
 
 	} else {
 		// Legacy MiXCR sequences first; fall back to universal naming for forward
@@ -257,7 +291,7 @@ wf.body(func(args) {
 			}
 
 			header := chain + "_" + feat
-			seqTb.add(bundle.getColumn(s.key), { header: header })
+			addSeqColumn(bundle.getColumn(s.key), { header: header })
 
 			if chainsFound[chain] == undefined { chainsFound[chain] = {} }
 			chainsFound[chain][feat] = 1
@@ -468,16 +502,21 @@ wf.body(func(args) {
 	// itself — customBlockLabel || defaultBlockLabel || "Sequence Properties"
 	// — matches clonotype-clustering and titeseq-analysis PR #13; only the
 	// location of the resolution differs (model here, inline-Tengo there).
-	trace := pSpec.makeTrace(datasetSpec, {
+	trace := pSpec.makeTrace(traceSpec, {
 		type: "milaboratories.sequence-properties",
 		importance: 30,
 		label: args.traceLabel,
 		id: blockId
 	})
 	stamp := func(spec) {
-		return trace.inject(columnSpecs.cloneSpec(spec,
+		s := trace.inject(columnSpecs.cloneSpec(spec,
 			{ "pl7.app/blockId": blockId },
 			undefined))
+		// A run on a subset says so: its outputs cover only the subset's entities.
+		if !is_undefined(filterColumn) {
+			s.domain["pl7.app/inputSubset"] = args.inputFilter
+		}
+		return s
 	}
 
 	pf := pframes.pFrameBuilder()

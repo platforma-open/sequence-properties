@@ -21,7 +21,7 @@ import type { Spec } from "@platforma-open/milaboratories.xsv-import.model";
 
 type Feature = "FR1" | "CDR1" | "FR2" | "CDR2" | "FR3" | "CDR3" | "FR4";
 
-/** Anchor abundance column annotations matching seqprops's inputAnchorSpecs. */
+/** Anchor abundance column annotations matching seqprops's dataset predicate (DATASET_KEY_AXES). */
 const ANCHOR_ANNOTATIONS = {
   "pl7.app/isAnchor": "true",
   "pl7.app/isAbundance": "true",

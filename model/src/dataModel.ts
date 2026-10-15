@@ -42,10 +42,11 @@ export const blockDataModel = new DataModelBuilder({ kind })
   // strings, never undefined.
   .migrate<BlockData>("Ver_2026_05_18", migrateV2toV2_1)
   // `params` carries the kind's init-params contract, and is undefined when the
-  // block is created outside a template. `inputAnchor` is the only field a
-  // creator supplies; everything else is view state that always defaults.
+  // block is created outside a template. `inputAnchor` and `filterRef` are the
+  // only fields a creator supplies; everything else is view state that always defaults.
   .init(({ params }) => ({
     inputAnchor: params?.inputAnchor,
+    filterRef: params?.filterRef,
     tableState: createPlDataTableStateV2(),
     defaultBlockLabel: "",
     customBlockLabel: "",
