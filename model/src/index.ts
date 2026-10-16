@@ -10,7 +10,6 @@ import {
   BlockModelV3,
   buildDatasetOptions,
   createGlobalPObjectId,
-  createPFrameForGraphs,
   createPlDataTableV2,
   isPColumnSpec,
 } from "@platforma-sdk/model";
@@ -124,7 +123,7 @@ export const platforma = BlockModelV3.create({ dataModel: blockDataModel, kind }
               ),
           )
         : [];
-    return createPFrameForGraphs(ctx, [...pCols, ...upstreamMeta]);
+    return ctx.createPFrame([...pCols, ...upstreamMeta]);
   })
   .output("propertiesPfCols", (ctx): PColumnIdAndSpec[] | undefined => {
     const pCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
