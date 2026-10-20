@@ -1,5 +1,11 @@
 ## 1.0.0
 
+## 1.7.3
+
+### Patch Changes
+
+- 2212f7a: Release every package through npm trusted publishing (OIDC) so each package's trusted publisher is used before it expires.
+
 ## 1.7.2
 
 ### Patch Changes

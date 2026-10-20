@@ -1,5 +1,11 @@
 # @platforma-open/MiLaboratories.sequence-properties.model
 
+## 1.4.1
+
+### Patch Changes
+
+- 2212f7a: Release every package through npm trusted publishing (OIDC) so each package's trusted publisher is used before it expires.
+
 ## 1.4.0
 
 ### Minor Changes
