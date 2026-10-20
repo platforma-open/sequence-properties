@@ -1,5 +1,13 @@
 # @platforma-open/MiLaboratories.sequence-properties.workflow
 
+## 1.5.1
+
+### Patch Changes
+
+- 2212f7a: Release every package through npm trusted publishing (OIDC) so each package's trusted publisher is used before it expires.
+- Updated dependencies [2212f7a]
+  - @platforma-open/milaboratories.sequence-properties.software@1.3.1
+
 ## 1.5.0
 
 ### Minor Changes
