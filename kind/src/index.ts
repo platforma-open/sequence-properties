@@ -5,12 +5,12 @@ import { name, version } from "../package.json" with { type: "json" };
 
 /**
  * This block's init-params contract — the upstream dataset a new instance
- * computes sequence properties on.
+ * computes sequence properties on, and an optional subset of it.
  *
  * That is the whole contract. Everything else in the model's `BlockData` is
  * view state the UI owns and always defaults: the table state, the two
  * graph-maker states, and the two label fields (`defaultBlockLabel` is written
- * by the UI from the chosen input's option label, `customBlockLabel` is the
+ * by the UI from the chosen input's (or subset's) option label, `customBlockLabel` is the
  * subtitle the user types).
  *
  * `inputAnchor` is optional because the projection hands live state back
@@ -20,6 +20,8 @@ import { name, version } from "../package.json" with { type: "json" };
  */
 export type BlockParams = {
   inputAnchor?: PlRef;
+  /** A subset column (`pl7.app/isSubset`) the input is restricted to before the analysis. */
+  filterRef?: PlRef;
 };
 
 /**
@@ -32,14 +34,20 @@ export type BlockParams = {
 function parseInitializationParams(value: unknown): BlockParams {
   assertParamsObject(value);
 
-  const { inputAnchor } = value;
+  const { inputAnchor, filterRef } = value;
   if (inputAnchor !== undefined && !isPlRef(inputAnchor)) {
     throw new Error(
       "'inputAnchor' must be a reference to an upstream column, written as { block, name }.",
     );
   }
 
-  return { inputAnchor };
+  if (filterRef !== undefined && !isPlRef(filterRef)) {
+    throw new Error(
+      "'filterRef' must be a reference to an upstream subset column, written as { block, name }.",
+    );
+  }
+
+  return { inputAnchor, filterRef };
 }
 
 // Identity (`name`/`version`) comes from this package's own `package.json`, so

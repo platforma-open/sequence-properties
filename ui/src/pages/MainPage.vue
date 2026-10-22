@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { createPlDataTableStateV2, type PlRef } from "@platforma-sdk/model";
+import type { DatasetSelection } from "@platforma-sdk/model";
+import {
+  createDatasetSelection,
+  createPlDataTableStateV2,
+  createPrimaryRef,
+} from "@platforma-sdk/model";
 import {
   PlAgDataTableV2,
   PlAlert,
   PlBlockPage,
   PlBtnGhost,
-  PlDropdownRef,
+  PlDatasetSelector,
   PlLogView,
   PlMaskIcon24,
   PlSlideModal,
@@ -30,10 +35,18 @@ watch(
 // object on server patches (other-client edits, app reopen); a watcher
 // would fire on that replacement and reset tableState the user did
 // not touch. The setter runs only on the user's gesture.
-function setInput(ref?: PlRef) {
-  app.model.data.inputAnchor = ref;
-  app.model.data.tableState = createPlDataTableStateV2();
-}
+const inputSelection = computed<DatasetSelection | undefined>({
+  get: () => {
+    const { inputAnchor, filterRef } = app.model.data;
+    if (inputAnchor === undefined) return undefined;
+    return createDatasetSelection(createPrimaryRef(inputAnchor, filterRef));
+  },
+  set: (selection) => {
+    app.model.data.inputAnchor = selection?.primary.column;
+    app.model.data.filterRef = selection?.primary.filter;
+    app.model.data.tableState = createPlDataTableStateV2();
+  },
+});
 
 // Source-of-truth for session-only dismissal lives at module scope in
 // `app.ts` so it survives in-block route changes (Main ↔ Property
@@ -92,18 +105,17 @@ const tableSettings = usePlDataTableSettingsV2({
 
   <PlSlideModal v-model="settingsOpen" close-on-outside-click shadow>
     <template #title>Settings</template>
-    <PlDropdownRef
-      :model-value="app.model.data.inputAnchor"
+    <PlDatasetSelector
+      v-model="inputSelection"
       :options="app.model.outputs.inputOptions"
       label="Input dataset"
       clearable
       required
-      @update:model-value="setInput"
     >
       <template #tooltip>
         Peptide extraction or MiXCR clonotyping output. Modality is auto-detected.
       </template>
-    </PlDropdownRef>
+    </PlDatasetSelector>
   </PlSlideModal>
 
   <PlSlideModal v-model="logOpen" width="80%">

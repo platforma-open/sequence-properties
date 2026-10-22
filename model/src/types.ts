@@ -26,11 +26,14 @@ export type BlockDataV2 = Omit<BlockDataV1, "defaultBlockLabel"> & {
 export type BlockData = Omit<BlockDataV2, "defaultBlockLabel"> & {
   defaultBlockLabel: string;
   customBlockLabel: string;
+  /** Subset column picked with the input in PlDatasetSelector (e.g. a Repertoire Labeling label). */
+  filterRef?: PlRef;
 };
 
 export type BlockArgs = {
   inputAnchor: PlRef;
   traceLabel: string;
+  inputFilter?: string;
 };
 
 export type WorkflowMode =
