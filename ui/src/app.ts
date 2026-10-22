@@ -1,4 +1,5 @@
 import { platforma } from "@platforma-open/milaboratories.sequence-properties.model";
+import { plRefsEqual } from "@platforma-sdk/model";
 import { defineAppV3 } from "@platforma-sdk/ui-vue";
 import { ref, watch, watchEffect } from "vue";
 import HistogramPage from "./pages/HistogramPage.vue";
@@ -20,13 +21,16 @@ export const dismissedInfoMessages = ref(new Set<string>());
 export const sdkPlugin = defineAppV3(platforma, (app) => {
   app.model.data.customBlockLabel ??= "";
 
+  // The subset's label when one is picked: it already carries the dataset as a prefix.
   watchEffect(() => {
-    const anchor = app.model.data.inputAnchor;
-    const opts = app.model.outputs.inputOptions ?? [];
-    const match = anchor
-      ? opts.find((o) => o.ref?.blockId === anchor.blockId && o.ref?.name === anchor.name)
+    const { inputAnchor, filterRef } = app.model.data;
+    const option = inputAnchor
+      ? app.model.outputs.inputOptions?.find((o) => plRefsEqual(o.primary.ref, inputAnchor, true))
       : undefined;
-    app.model.data.defaultBlockLabel = match?.label ?? "";
+    const filter = filterRef
+      ? option?.filters?.find((f) => plRefsEqual(f.ref, filterRef, true))
+      : undefined;
+    app.model.data.defaultBlockLabel = (filter ?? option?.primary)?.label ?? "";
   });
 
   // Auto-prune the dismissed set to the currently-firing messages. When
