@@ -11,6 +11,9 @@ import {
   buildDatasetOptions,
   createGlobalPObjectId,
   createPlDataTableV2,
+  getRelatedColumns,
+  isHiddenFromGraphColumn,
+  isHiddenFromUIColumn,
   isPColumnSpec,
 } from "@platforma-sdk/model";
 import { blockDataModel } from "./dataModel";
@@ -96,34 +99,17 @@ export const platforma = BlockModelV3.create({ dataModel: blockDataModel, kind }
     // it via `isNumericScalar` (axesSpec.length === 1), so the data was
     // pure overhead.
     const pCols = allPCols.filter((c) => c.spec.name !== "pl7.app/aaFraction");
-    // Use `ctx.createPFrame` instead of `createPFrameForGraphs`. The latter
-    // walks the result pool and pulls in this block's `exports.properties`
-    // — a `trace.inject`-stamped re-emission of every column already in
-    // `propertiesPf`, published for Lead Selection — so axis dropdowns
-    // show e.g. "Net Charge (pH7) / IG" twice. Same workaround chosen by
-    // cdr3-spectratype, batch-correction, cell-type-annotation, and
-    // dimensionality-reduction.
-    //
-    // Pull single-axis metadata anchored to the input dataset's two axes
-    // (idx 0 = sample, idx 1 = entity key) so sample groups / patient IDs /
-    // peptide abundance and similar cols remain available for grouping and
-    // filtering. Drop self-trace to keep our own exports out.
-    const inputAnchor = ctx.data.inputAnchor;
-    const upstreamMeta =
-      inputAnchor !== undefined
-        ? (
-            ctx.resultPool.getAnchoredPColumns({ main: inputAnchor }, [
-              { axes: [{ anchor: "main", idx: 0 }] },
-              { axes: [{ anchor: "main", idx: 1 }] },
-            ]) ?? []
-          ).filter(
-            (c) =>
-              !c.spec.annotations?.[Annotation.Trace]?.includes(
-                "milaboratories.sequence-properties",
-              ),
-          )
-        : [];
-    return ctx.createPFrame([...pCols, ...upstreamMeta]);
+    // Same pool walk as `createPFrameForGraphs` (upstream and linker columns such as cluster size),
+    // minus this block's `exports.properties`, which repeat every column in `propertiesPf`.
+    const related = getRelatedColumns(ctx, {
+      columns: pCols,
+      predicate: (spec) =>
+        !isHiddenFromUIColumn(spec) &&
+        !isHiddenFromGraphColumn(spec) &&
+        !spec.annotations?.[Annotation.Trace]?.includes("milaboratories.sequence-properties"),
+    });
+    const ownIds = new Set(pCols.map((c) => c.id));
+    return ctx.createPFrame([...pCols, ...related.filter((c) => !ownIds.has(c.id))]);
   })
   .output("propertiesPfCols", (ctx): PColumnIdAndSpec[] | undefined => {
     const pCols = ctx.outputs?.resolve("propertiesPf")?.getPColumns();
