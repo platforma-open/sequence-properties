@@ -80,10 +80,51 @@ resolveReceptor := func(receptorVal, chainVal) {
 	return { value: "", seen: false }
 }
 
+// Columns whose `axisSpec.name` axis carries exactly `axisSpec`'s domain. The bundle ignores
+// missing domains, so a dataset derived from the input (the same axis plus extra keys, such as a
+// clustering centroid dataset) also matches queries anchored on the input.
+onAxisExactly := func(cols, axisSpec) {
+	want := is_undefined(axisSpec.domain) ? {} : axisSpec.domain
+	res := []
+	for col in cols {
+		for ax in col.spec.axesSpec {
+			if ax.name != axisSpec.name {
+				continue
+			}
+			have := is_undefined(ax.domain) ? {} : ax.domain
+			same := len(have) == len(want)
+			for k, v in want {
+				if have[k] != v {
+					same = false
+				}
+			}
+			if same {
+				res = append(res, col)
+			}
+			break
+		}
+	}
+	return res
+}
+
 wf.prepare(func(args) {
 	bb := wf.createPBundleBuilder()
 	bb.ignoreMissingDomains()
 	bb.addAnchor("main", args.inputAnchor)
+
+	// Main amino-acid sequence of each entity, whatever its feature: peptide-extraction,
+	// synthetic-repertoire-profiler and clustering centroid datasets all mark it. Read first
+	// in whole-sequence modes; the feature-named collectors below cover data without the marker.
+	bb.addMulti({
+		axes: [{ anchor: "main", idx: 1 }],
+		name: "pl7.app/sequence",
+		domain: {
+			"pl7.app/alphabet": "aminoacid"
+		},
+		annotations: {
+			"pl7.app/isMainSequence": "true"
+		}
+	}, "mainSequences")
 
 	// Peptide sequence column (universal naming, post-peptide-extraction).
 	bb.addMulti({
@@ -228,13 +269,13 @@ wf.body(func(args) {
 	seqTb.setAxisHeader(keyAxisSpec, "entity_key")
 
 	if wholeSeqMode {
-		seqCols := undefined
-		if mode == "peptide" {
+		seqCols := onAxisExactly(bundle.getColumns("mainSequences"), keyAxisSpec)
+		if len(seqCols) == 0 && mode == "peptide" {
 			seqCols = bundle.getColumns("peptideSequences")
 			if len(seqCols) == 0 {
 				ll.panic("peptide mode detected but no peptide amino-acid sequence column was found in the input dataset")
 			}
-		} else {
+		} else if len(seqCols) == 0 {
 			seqCols = bundle.getColumns("ampliconSequences")
 			if len(seqCols) == 0 {
 				ll.panic("amplicon mode detected but no whole-variant amino-acid sequence column (feature 'amplicon-sequence') was found in the input dataset")
