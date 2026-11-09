@@ -4,7 +4,6 @@ import {
   createDatasetSelection,
   createPlDataTableStateV2,
   createPrimaryRef,
-  plRefsEqual,
 } from "@platforma-sdk/model";
 import {
   PlAgDataTableV2,
@@ -46,22 +45,8 @@ const inputSelection = computed<DatasetSelection | undefined>({
     app.model.data.inputAnchor = selection?.primary.column;
     app.model.data.filterRef = selection?.primary.filter;
     app.model.data.tableState = createPlDataTableStateV2();
-    setSubtitleLabel(selection);
   },
 });
-
-// The subset's label when one is picked: it already carries the dataset as a prefix.
-function setSubtitleLabel(selection: DatasetSelection | undefined) {
-  const inputAnchor = selection?.primary.column;
-  const filterRef = selection?.primary.filter;
-  const option = inputAnchor
-    ? app.model.outputs.inputOptions?.find((o) => plRefsEqual(o.primary.ref, inputAnchor, true))
-    : undefined;
-  const filter = filterRef
-    ? option?.filters?.find((f) => plRefsEqual(f.ref, filterRef, true))
-    : undefined;
-  app.model.data.subtitleLabel = (filter ?? option?.primary)?.label ?? "";
-}
 
 // Source-of-truth for session-only dismissal lives at module scope in
 // `app.ts` so it survives in-block route changes (Main ↔ Property

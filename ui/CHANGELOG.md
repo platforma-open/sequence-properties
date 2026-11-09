@@ -1,5 +1,12 @@
 # @platforma-open/MiLaboratories.sequence-properties.ui
 
+## 1.8.2
+
+### Patch Changes
+
+- f9352ac: Keep the block subtitle in sync with the chosen input's current label
+  - @platforma-open/milaboratories.sequence-properties.model@1.8.2
+
 ## 1.8.1
 
 ### Patch Changes
