@@ -1,7 +1,6 @@
 import { platforma } from "@platforma-open/milaboratories.sequence-properties.model";
-import { plRefsEqual } from "@platforma-sdk/model";
 import { defineAppV3 } from "@platforma-sdk/ui-vue";
-import { ref, watch, watchEffect } from "vue";
+import { ref, watch } from "vue";
 import HistogramPage from "./pages/HistogramPage.vue";
 import MainPage from "./pages/MainPage.vue";
 import ScatterPage from "./pages/ScatterPage.vue";
@@ -20,18 +19,6 @@ export const dismissedInfoMessages = ref(new Set<string>());
 
 export const sdkPlugin = defineAppV3(platforma, (app) => {
   app.model.data.customBlockLabel ??= "";
-
-  // The subset's label when one is picked: it already carries the dataset as a prefix.
-  watchEffect(() => {
-    const { inputAnchor, filterRef } = app.model.data;
-    const option = inputAnchor
-      ? app.model.outputs.inputOptions?.find((o) => plRefsEqual(o.primary.ref, inputAnchor, true))
-      : undefined;
-    const filter = filterRef
-      ? option?.filters?.find((f) => plRefsEqual(f.ref, filterRef, true))
-      : undefined;
-    app.model.data.defaultBlockLabel = (filter ?? option?.primary)?.label ?? "";
-  });
 
   // Auto-prune the dismissed set to the currently-firing messages. When
   // the workflow stops emitting a previously-dismissed string (re-run
