@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BlockData } from "./types";
 import { resolveSubtitle, resolveTraceLabel } from "./label";
 
-const base: Omit<BlockData, "customBlockLabel" | "defaultBlockLabel"> = {
+const base: Omit<BlockData, "customBlockLabel" | "subtitleLabel"> = {
   tableState: {
     pTableParams: {
       defaultFilters: null,
@@ -27,10 +27,10 @@ const base: Omit<BlockData, "customBlockLabel" | "defaultBlockLabel"> = {
   } as BlockData["graphStateHistogram"],
 };
 
-const make = (custom: string, def: string): BlockData => ({
+const make = (custom: string, subtitle: string): BlockData => ({
   ...(base as BlockData),
   customBlockLabel: custom,
-  defaultBlockLabel: def,
+  subtitleLabel: subtitle,
 });
 
 describe("resolveSubtitle", () => {
@@ -38,7 +38,7 @@ describe("resolveSubtitle", () => {
     expect(resolveSubtitle(make("My label", "Dataset"))).toBe("My label");
   });
 
-  it("falls back to defaultBlockLabel when customBlockLabel is empty", () => {
+  it("falls back to subtitleLabel when customBlockLabel is empty", () => {
     expect(resolveSubtitle(make("", "Dataset"))).toBe("Dataset");
   });
 
@@ -52,11 +52,11 @@ describe("resolveTraceLabel", () => {
     expect(resolveTraceLabel(make("My label", "Dataset"))).toBe("My label");
   });
 
-  it("falls back to defaultBlockLabel when customBlockLabel is empty", () => {
-    expect(resolveTraceLabel(make("", "Dataset"))).toBe("Dataset");
+  it("uses the block name when customBlockLabel is empty, ignoring the input label", () => {
+    expect(resolveTraceLabel(make("", "Dataset"))).toBe("Sequence Properties");
   });
 
-  it("falls back to the block-type default when both label fields are empty", () => {
+  it("uses the block name when both label fields are empty", () => {
     expect(resolveTraceLabel(make("", ""))).toBe("Sequence Properties");
   });
 });

@@ -6,9 +6,8 @@ import type { PlDataTableStateV2, PlRef } from "@platforma-sdk/model";
 export type BlockDataV1 = {
   inputAnchor?: PlRef;
   tableState: PlDataTableStateV2;
-  // Historically optional UI-only state. Required in the current BlockData
-  // shape; consumed by the label helpers in label.ts (resolveSubtitle for
-  // the PlBlockPage subtitle, resolveTraceLabel for the workflow trace).
+  // Historically optional UI-only state, written by the UI from the chosen
+  // input's option label. Carried into `subtitleLabel` by Ver_2026_11_06.
   defaultBlockLabel?: string;
 };
 
@@ -23,11 +22,18 @@ export type BlockDataV2 = Omit<BlockDataV1, "defaultBlockLabel"> & {
   graphStateHistogram: GraphMakerState;
 };
 
-export type BlockData = Omit<BlockDataV2, "defaultBlockLabel"> & {
+// V2.1 shape — what the Ver_2026_05_18 migration produces. Input to the
+// Ver_2026_11_06 step that moves the input label into `subtitleLabel`.
+export type BlockDataV2_1 = Omit<BlockDataV2, "defaultBlockLabel"> & {
   defaultBlockLabel: string;
   customBlockLabel: string;
   /** Subset column picked with the input in PlDatasetSelector (e.g. a Repertoire Labeling label). */
   filterRef?: PlRef;
+};
+
+export type BlockData = Omit<BlockDataV2_1, "defaultBlockLabel"> & {
+  /** Label of the chosen input (or subset), shown in the subtitle; written when the user picks the input. */
+  subtitleLabel: string;
 };
 
 export type BlockArgs = {

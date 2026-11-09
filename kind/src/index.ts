@@ -9,9 +9,9 @@ import { name, version } from "../package.json" with { type: "json" };
  *
  * That is the whole contract. Everything else in the model's `BlockData` is
  * view state the UI owns and always defaults: the table state, the two
- * graph-maker states, and the two label fields (`defaultBlockLabel` is written
- * by the UI from the chosen input's (or subset's) option label, `customBlockLabel` is the
- * subtitle the user types).
+ * graph-maker states, and the two label fields (`subtitleLabel` is written
+ * by the UI from the chosen input's (or subset's) option label when the user picks it,
+ * `customBlockLabel` is the subtitle the user types).
  *
  * `inputAnchor` is optional because the projection hands live state back
  * untouched, and a block whose input is not picked yet holds `undefined` there.
