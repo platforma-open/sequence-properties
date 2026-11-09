@@ -1,5 +1,11 @@
 # @platforma-open/MiLaboratories.sequence-properties.ui
 
+## 1.8.3
+
+### Patch Changes
+
+- @platforma-open/milaboratories.sequence-properties.model@1.8.3
+
 ## 1.8.2
 
 ### Patch Changes
