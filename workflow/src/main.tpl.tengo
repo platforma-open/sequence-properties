@@ -56,7 +56,14 @@ CHAIN_TO_RECEPTOR := {
 	TCRAlpha: "TCRAB",
 	TCRBeta: "TCRAB",
 	TCRGamma: "TCRGD",
-	TCRDelta: "TCRGD"
+	TCRDelta: "TCRGD",
+	// Bare chain names (variant-key-axis.md), as emitted on pl7.app/vdj/chain by the profiler.
+	Heavy: "IG",
+	Light: "IG",
+	Alpha: "TCRAB",
+	Beta: "TCRAB",
+	Gamma: "TCRGD",
+	Delta: "TCRGD"
 }
 
 chainToReceptor := func(chain) {

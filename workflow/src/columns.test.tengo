@@ -82,6 +82,19 @@ Test_chainToSlot_locusSeatsTheDiverseChainInA := func() {
 	test.isEqual("A", columns.chainToSlot("Nonsense"), "unknown locus defaults to A")
 }
 
+Test_chainToSlot_bareChainNames := func() {
+	// The synthetic-repertoire-profiler puts the bare chain (variant-key-axis.md) on
+	// pl7.app/vdj/chain, not the MiXCR locus id. VDJ chain -> A, VJ chain -> B.
+	seats := {
+		Heavy: "A", Light: "B",
+		Beta: "A", Alpha: "B",
+		Delta: "A", Gamma: "B"
+	}
+	for chain, slot in seats {
+		test.isEqual(slot, columns.chainToSlot(chain), chain + " slot")
+	}
+}
+
 Test_buildColumns_chainDomainIsIndependentOfTheLabel := func() {
 	for receptor in ["IG", "TCRAB", "TCRGD"] {
 		cols := pairedCols(receptor)
