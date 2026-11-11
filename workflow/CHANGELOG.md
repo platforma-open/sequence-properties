@@ -1,5 +1,11 @@
 # @platforma-open/MiLaboratories.sequence-properties.workflow
 
+## 1.8.4
+
+### Patch Changes
+
+- 38f6001: Amplicon scFV support
+
 ## 1.8.3
 
 ### Patch Changes
