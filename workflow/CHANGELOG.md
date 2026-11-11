@@ -1,5 +1,7 @@
 # @platforma-open/MiLaboratories.sequence-properties.workflow
 
+## 1.8.5
+
 ## 1.8.4
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 ## 1.0.0
 
+## 1.8.5
+
+### Patch Changes
+
+- 2de5d7d: Republish the block kind under a new version so the block can release. The kind source and the version stored in the block registry had drifted apart, which blocked publishing.
+
 ## 1.8.4
 
 ### Patch Changes

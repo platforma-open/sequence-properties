@@ -1,6 +1,6 @@
 {
   "name": "@platforma-open/milaboratories.sequence-properties",
-  "version": "1.8.4",
+  "version": "1.8.5",
   "files": [
     "dist",
     "block-pack"

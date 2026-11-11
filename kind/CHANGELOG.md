@@ -1,5 +1,11 @@
 # @platforma-open/milaboratories.sequence-properties.kind
 
+## 1.1.1
+
+### Patch Changes
+
+- 2de5d7d: Republish the block kind under a new version so the block can release. The kind source and the version stored in the block registry had drifted apart, which blocked publishing.
+
 ## 1.1.0
 
 ### Minor Changes
