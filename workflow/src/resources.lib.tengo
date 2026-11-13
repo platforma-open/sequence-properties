@@ -14,6 +14,8 @@ MEM_ROWS := {
 	pairedChains: { perRow: 8192, interceptGiB: 1 }
 }
 MEM_FLOOR_GIB := 12
+// Backends that cannot evaluate formulas get a static request instead.
+MEM_FALLBACK_GIB := 48
 
 // mem(wholeSeqMode, nFullChains) -> exec.formula for the step's RAM request.
 mem := func(wholeSeqMode, nFullChains) {
@@ -25,7 +27,7 @@ mem := func(wholeSeqMode, nFullChains) {
 	}
 	return f.lineCount().times(row.perRow).plus(f.gib(row.interceptGiB)).
 		atLeast(f.gib(MEM_FLOOR_GIB)).
-		staticFallback(f.gib(MEM_FLOOR_GIB))
+		staticFallback(f.gib(MEM_FALLBACK_GIB))
 }
 
 export {

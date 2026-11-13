@@ -51,6 +51,6 @@ TestMemNoCap := func() {
 }
 
 TestMemStaticFallback := func() {
-	test.isEqual(12 * GIB, f.fallbackOf(resources.mem(false, 1)))
-	test.isEqual(12 * GIB, f.fallbackOf(resources.mem(true, 0)))
+	test.isEqual(48 * GIB, f.fallbackOf(resources.mem(false, 1)))
+	test.isEqual(48 * GIB, f.fallbackOf(resources.mem(true, 0)))
 }
