@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 from io_layer import read_input_tsv, read_plan, write_output_tsv
-from pipeline import run
+from pipeline import DEFAULT_CHUNK_ROWS, run
 
 
 def _configure_logging() -> None:
@@ -48,11 +48,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True, help="path to write properties TSV")
     parser.add_argument("--aa-fraction", required=True, help="path to write AA fraction TSV")
     parser.add_argument("--stats", required=True, help="path to write dataset stats JSON")
+    parser.add_argument(
+        "--chunk-rows",
+        type=int,
+        default=DEFAULT_CHUNK_ROWS,
+        help="rows computed per chunk; bounds peak memory, does not change outputs",
+    )
     args = parser.parse_args(argv)
 
     reads = read_input_tsv(args.input)
     plan = read_plan(args.plan)
-    outputs = run(reads, plan)
+    outputs = run(reads, plan, chunk_rows=args.chunk_rows)
     write_output_tsv(outputs["properties"], args.output, sort_keys=["entity_key"])
     write_output_tsv(outputs["aa_fraction"], args.aa_fraction, sort_keys=["entity_key", "aminoAcid"])
     Path(args.stats).write_text(json.dumps(outputs["stats"], sort_keys=True, separators=(",", ":")))

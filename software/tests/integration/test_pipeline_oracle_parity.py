@@ -30,7 +30,7 @@ import pytest
 
 import properties as scalar
 from io_layer import read_input_tsv, read_plan
-from pipeline import _decimals_for, run
+from pipeline import DEFAULT_CHUNK_ROWS, _decimals_for, run
 from pka_tables import IPC2_PEPTIDE, IPC2_PROTEIN
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "characterization"
@@ -104,11 +104,12 @@ def _oracle_expected(record: dict, plan: dict) -> dict[str, float | None]:
     return exp
 
 
+@pytest.mark.parametrize("chunk_rows", [DEFAULT_CHUNK_ROWS, 7])
 @pytest.mark.parametrize("case", ANTIBODY_CASES)
-def test_pipeline_matches_oracle(case):
+def test_pipeline_matches_oracle(case, chunk_rows):
     reads = read_input_tsv(DATA / f"{case}_input.tsv")
     plan = read_plan(DATA / f"{case}_plan.json")
-    out = run(reads, plan)
+    out = run(reads, plan, chunk_rows=chunk_rows)
     actual_rows = {r["entity_key"]: r for r in out["properties"].iter_rows(named=True)}
 
     compared = 0

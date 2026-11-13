@@ -119,7 +119,25 @@ def _quantize_for_cid(df: pl.DataFrame) -> pl.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def run(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
+# Rows per compute chunk. Every property is a per-row function, so peak memory
+# scales with the chunk, not the dataset: the per-residue buffers (cleaned AA
+# indices, row ids, count matrices) exist for one chunk at a time.
+DEFAULT_CHUNK_ROWS = 100_000
+
+
+def _row_chunks(reads: pl.DataFrame, chunk_rows: int):
+    """Yield consecutive zero-copy row slices of `reads`. An empty frame yields
+    itself once, so callers still build correctly typed (empty) outputs."""
+    if chunk_rows < 1:
+        raise ValueError(f"chunk_rows must be >= 1, got {chunk_rows}")
+    if reads.height == 0:
+        yield reads
+        return
+    for offset in range(0, reads.height, chunk_rows):
+        yield reads.slice(offset, chunk_rows)
+
+
+def run(reads: pl.DataFrame, plan: dict[str, Any], chunk_rows: int = DEFAULT_CHUNK_ROWS) -> dict[str, Any]:
     """Dispatch by mode. Returns a dict with three entries:
 
     - `properties` (DataFrame): one row per entity, columns per the plan.
@@ -128,17 +146,20 @@ def run(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
     - `stats` (dict): dataset-level stats consumed by the workflow info layer
       (e.g. R11c VHH detection — median CDR3 length per chain;
       R9 — peptide count below the Instability Index length floor).
+
+    Rows are computed `chunk_rows` at a time; outputs do not depend on it.
     """
     mode = plan["mode"]
     if mode == "peptide":
-        log.info("Running peptide mode (%d entities)", reads.height)
-        return run_peptide(reads)
+        log.info("Running peptide mode (%d entities, chunk %d rows)", reads.height, chunk_rows)
+        return run_peptide(reads, chunk_rows)
     log.info(
-        "Running antibody/TCR mode (receptor=%s, %d clones)",
+        "Running antibody/TCR mode (receptor=%s, %d clones, chunk %d rows)",
         plan.get("receptor", "IG"),
         reads.height,
+        chunk_rows,
     )
-    return run_antibody_tcr(reads, plan)
+    return run_antibody_tcr(reads, plan, chunk_rows)
 
 
 # ---------------------------------------------------------------------------
@@ -170,8 +191,34 @@ def _na_to_null(values: np.ndarray) -> pl.Series:
     return pl.Series(values=values, dtype=pl.Float64).fill_nan(None)
 
 
-def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
-    """Compute peptide-mode outputs on the vectorized engine.
+def run_peptide(reads: pl.DataFrame, chunk_rows: int = DEFAULT_CHUNK_ROWS) -> dict[str, Any]:
+    """Compute peptide-mode outputs on the vectorized engine, `chunk_rows` rows
+    at a time (see `_peptide_chunk`). The R9 below-floor flag is OR-ed across
+    chunks.
+    """
+    log.info("Computing peptide properties + AA fractions (%d sequences)", reads.height)
+    prop_parts: list[pl.DataFrame] = []
+    aa_parts: list[pl.DataFrame] = []
+    has_below_floor = False
+    for chunk in _row_chunks(reads, chunk_rows):
+        props, aa, below = _peptide_chunk(chunk)
+        prop_parts.append(props)
+        aa_parts.append(aa)
+        has_below_floor = has_below_floor or below
+    stats = {
+        "medianCdr3Length": {},
+        "hasPeptideBelowInstabilityFloor": has_below_floor,
+    }
+    return {
+        "properties": pl.concat(prop_parts, how="vertical", rechunk=True),
+        "aa_fraction": pl.concat(aa_parts, how="vertical", rechunk=True),
+        "stats": stats,
+    }
+
+
+def _peptide_chunk(reads: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame, bool]:
+    """Peptide-mode outputs for one row chunk: (quantized properties,
+    aa_fraction long frame, whether any peptide is below the instability floor).
 
     Builds the per-residue count substrate once over the `sequence` column, then
     derives all 10 peptide properties + the AA-fraction matrix with array ops.
@@ -185,7 +232,6 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
     seqs = reads["sequence"].to_list()
     n = len(seqs)
 
-    log.info("Computing peptide properties + AA fractions (%d sequences)", n)
     sub = vec.build_counts(seqs)
 
     eox, ered = vec.extinction(sub)
@@ -241,16 +287,7 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
     # residues, which the scalar oracle counts toward the floor. Using
     # effective_length keeps this stat bit-identical to the scalar path.
     has_below_floor = any(0 < effective_length(s) < INSTABILITY_MIN_LENGTH for s in seqs if s)
-    stats = {
-        "medianCdr3Length": {},
-        "hasPeptideBelowInstabilityFloor": has_below_floor,
-    }
-
-    return {
-        "properties": _quantize_for_cid(properties),
-        "aa_fraction": aa_fraction,
-        "stats": stats,
-    }
+    return _quantize_for_cid(properties), aa_fraction, has_below_floor
 
 
 # ---------------------------------------------------------------------------
@@ -348,8 +385,34 @@ def _reconstruct_chain_column(reads: pl.DataFrame, chain: str) -> list[str | Non
     return reconstructed.to_list()
 
 
-def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
-    """Compute antibody/TCR-mode outputs on the vectorized engine.
+def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any], chunk_rows: int = DEFAULT_CHUNK_ROWS) -> dict[str, Any]:
+    """Compute antibody/TCR-mode outputs on the vectorized engine, `chunk_rows`
+    rows at a time (see `_antibody_tcr_chunk`). The median CDR3 length stat is
+    computed over the full `reads`.
+    """
+    chains = plan.get("chains", [])
+    full_chains = plan.get("fullChains", [])
+    if chains:
+        log.info("Computing CDR3 properties for chains %s (%d clones)", list(chains), reads.height)
+    if full_chains:
+        log.info("Reconstructing full chains %s and computing full-chain properties", list(full_chains))
+    if plan.get("hasFv"):
+        log.info("Computing Fv properties (paired VH+VL)")
+
+    parts = [_antibody_tcr_chunk(chunk, plan) for chunk in _row_chunks(reads, chunk_rows)]
+    properties = pl.concat(parts, how="vertical", rechunk=True)
+    del parts
+    aa_fraction = pl.DataFrame(schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64})
+    stats = {"medianCdr3Length": _median_cdr3_length_by_chain(reads, chains)}
+    return {
+        "properties": properties,
+        "aa_fraction": aa_fraction,
+        "stats": stats,
+    }
+
+
+def _antibody_tcr_chunk(reads: pl.DataFrame, plan: dict[str, Any]) -> pl.DataFrame:
+    """Quantized antibody/TCR property frame for one row chunk.
 
     * CDR3 (per `plan["chains"]`): build_counts on the `{chain}_CDR3` column ->
       charge / chargeShift / gravy with the IPC 2.0 peptide pKa set, Cys
@@ -368,13 +431,6 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
     """
     chains = plan.get("chains", [])
     full_chains = plan.get("fullChains", [])
-    n = reads.height
-    if chains:
-        log.info("Computing CDR3 properties for chains %s (%d clones)", list(chains), n)
-    if full_chains:
-        log.info("Reconstructing full chains %s and computing full-chain properties", list(full_chains))
-    if plan.get("hasFv"):
-        log.info("Computing Fv properties (paired VH+VL)")
 
     series: dict[str, pl.Series] = {"entity_key": reads["entity_key"].cast(pl.Utf8)}
 
@@ -452,10 +508,4 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
 
     out_cols = _planned_output_columns(plan)
     properties = pl.DataFrame({"entity_key": series["entity_key"], **{c: series[c] for c in out_cols}})
-    aa_fraction = pl.DataFrame(schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64})
-    stats = {"medianCdr3Length": _median_cdr3_length_by_chain(reads, chains)}
-    return {
-        "properties": _quantize_for_cid(properties),
-        "aa_fraction": aa_fraction,
-        "stats": stats,
-    }
+    return _quantize_for_cid(properties)

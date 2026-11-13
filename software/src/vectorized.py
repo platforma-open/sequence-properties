@@ -93,18 +93,18 @@ def _safe_div(num: np.ndarray, length: np.ndarray, valid: np.ndarray) -> np.ndar
 
 
 def _matvec(counts: np.ndarray, weights: np.ndarray) -> np.ndarray:
-    """counts (N,20) · weights (20,) -> (N,).
+    """counts (N,20) · weights (20,) -> (N,), summed left to right in column
+    (STANDARD_AAS) order with elementwise ufuncs.
 
-    Wrapped in np.errstate because numpy's matmul SIMD kernel raises spurious
-    overflow / invalid / divide-by-zero RuntimeWarnings on this matvec shape
-    even though the result is exact: the flags are read from FP status on
-    masked tail SIMD lanes, not from the data. The output is bit-identical to
-    the unwrapped `counts @ weights` (verified, maxdiff 0.0) and parity-tested
-    to 1e-16; multiply-sum / einsum silence the warning too but change the
-    summation order (and the emitted bytes), so they are not used here.
+    Each row's result depends only on that row: BLAS matvec (`counts @ weights`)
+    picks its kernel and summation order by matrix shape, so the same row can
+    differ in the last bit between batches of different size, and a row-chunked
+    run would not reproduce a single-batch run.
     """
-    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        return counts @ weights
+    acc = counts[:, 0] * weights[0]
+    for j in range(1, counts.shape[1]):
+        acc = acc + counts[:, j] * weights[j]
+    return acc
 
 
 @dataclass(frozen=True)

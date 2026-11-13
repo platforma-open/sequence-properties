@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from io_layer import read_input_tsv, read_plan, write_output_tsv
-from pipeline import run
+from pipeline import DEFAULT_CHUNK_ROWS, run
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "characterization"
 GOLDEN = DATA / "golden"
@@ -40,11 +40,14 @@ def _assert_file_bytes_equal(got: Path, golden: Path, label: str) -> None:
     raise AssertionError(f"{label}: byte mismatch vs golden\n{diff}")
 
 
+# Tiny chunk sizes split every case into many chunks (1 -> single-row chunks,
+# including all-NA ones); output must equal the single-chunk golden byte-for-byte.
+@pytest.mark.parametrize("chunk_rows", [DEFAULT_CHUNK_ROWS, 7, 1])
 @pytest.mark.parametrize("case", CASES)
-def test_quantized_output_matches_golden(case, tmp_path):
+def test_quantized_output_matches_golden(case, chunk_rows, tmp_path):
     reads = read_input_tsv(DATA / f"{case}_input.tsv")
     plan = read_plan(DATA / f"{case}_plan.json")
-    out = run(reads, plan)
+    out = run(reads, plan, chunk_rows=chunk_rows)
 
     props = tmp_path / "p.tsv"
     write_output_tsv(out["properties"], props, sort_keys=["entity_key"])

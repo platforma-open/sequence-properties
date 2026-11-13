@@ -53,8 +53,10 @@ def _run_cli_subprocess(
     out_tsv: Path,
     aa_tsv: Path,
     stats_json: Path,
+    chunk_rows: int | None = None,
 ) -> None:
     """Invoke main.py in a fresh subprocess. Independent hash seed per call."""
+    extra = [] if chunk_rows is None else ["--chunk-rows", str(chunk_rows)]
     result = subprocess.run(
         [
             sys.executable,
@@ -69,6 +71,7 @@ def _run_cli_subprocess(
             str(aa_tsv),
             "--stats",
             str(stats_json),
+            *extra,
         ],
         capture_output=True,
         text=True,
@@ -193,5 +196,35 @@ def test_outputs_byte_stable_across_subprocess_runs(
 
     _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, **a)
     _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, **b)
+
+    _assert_all_three_byte_identical(a, b)
+
+
+# A run split into single-row chunks (fresh process) must write the same bytes
+# as a default single-chunk run: chunking bounds memory, never changes output.
+@pytest.mark.parametrize(
+    "rows, columns, plan",
+    [
+        (_PEPTIDE_ROWS, _PEPTIDE_COLUMNS, _PEPTIDE_PLAN),
+        (_ANTIBODY_ROWS, _ANTIBODY_COLUMNS, _ANTIBODY_PLAN),
+    ],
+    ids=["peptide", "antibody"],
+)
+def test_outputs_byte_stable_across_chunk_sizes(
+    tmp_path: Path,
+    rows: list[dict[str, str]],
+    columns: list[str],
+    plan: dict[str, object],
+) -> None:
+    in_tsv = tmp_path / "input.tsv"
+    plan_json = tmp_path / "plan.json"
+    _write_tsv(in_tsv, rows, columns)
+    plan_json.write_text(json.dumps(plan))
+
+    a = _run_paths(tmp_path, "_default")
+    b = _run_paths(tmp_path, "_chunk1")
+
+    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, **a)
+    _run_cli_subprocess(input_tsv=in_tsv, plan_json=plan_json, chunk_rows=1, **b)
 
     _assert_all_three_byte_identical(a, b)

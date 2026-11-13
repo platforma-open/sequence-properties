@@ -124,3 +124,18 @@ def test_invalid_rows_are_nan():
     frac = aa_fractions(sub)
     assert np.all(np.isnan(frac[:4]))
     assert pytest.approx(frac[4].sum(), abs=_TOL) == 1.0
+
+
+# A row's weighted sum must not depend on the batch it is computed in: the
+# pipeline computes rows in chunks, and output bytes must not change with the
+# chunk size. BLAS matvec breaks this (shape-dependent kernels), so every row
+# is compared bit-for-bit against its own single-row computation.
+@pytest.mark.parametrize("weights_name", ["_KD", "_MASS", "_AROMATIC", "_EXT_RED"])
+def test_matvec_is_batch_independent(weights_name: str):
+    import vectorized
+
+    weights = getattr(vectorized, weights_name)
+    counts = np.random.default_rng(0).integers(0, 40, size=(1000, 20)).astype(np.int64)
+    whole = vectorized._matvec(counts, weights)
+    single = np.array([vectorized._matvec(counts[i : i + 1], weights)[0] for i in range(len(counts))])
+    np.testing.assert_array_equal(whole, single)
