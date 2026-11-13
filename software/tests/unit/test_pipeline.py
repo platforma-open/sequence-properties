@@ -677,3 +677,60 @@ class TestPipelineLogging:
         text = caplog.text.lower()
         assert "full" in text or "vdj" in text or "vh" in text, caplog.text
         assert "fv" in text, caplog.text
+
+
+class TestChunking:
+    """`run(..., chunk_rows=k)` computes k rows at a time. Outputs, dtypes and
+    stats must equal the single-chunk run for every k.
+    """
+
+    _FULL_PLAN = {
+        "mode": "antibody_tcr_legacy_bulk",
+        "receptor": "IG",
+        "chains": ["A", "B"],
+        "fullChains": ["A", "B"],
+        "hasFv": True,
+    }
+
+    # Chunk 1 (rows c0, cX) is all-NA: c0 has every region empty, cX a stop
+    # codon in every region. Its Float64 null columns must concat with the valid
+    # chunk 2.
+    def test_all_invalid_chunk_concats_with_valid_chunk(self, antibody_full_two_clones: pl.DataFrame):
+        region_cols = antibody_full_two_clones.columns[1:]
+        bad = pl.DataFrame(
+            {
+                "entity_key": ["c0", "cX"],
+                **{c: ["", "*" + antibody_full_two_clones[c][0]] for c in region_cols},
+            }
+        )
+        reads = pl.concat([bad, antibody_full_two_clones])
+        whole = run(reads, self._FULL_PLAN)
+        chunked = run(reads, self._FULL_PLAN, chunk_rows=2)
+
+        props = chunked["properties"]
+        assert props.schema == whole["properties"].schema
+        assert all(dt == pl.Float64 for name, dt in props.schema.items() if name != "entity_key")
+        assert props.head(2).drop("entity_key").null_count().row(0) == (2,) * (props.width - 1)
+        assert props.equals(whole["properties"], null_equal=True)
+        assert chunked["stats"] == whole["stats"]
+
+    @pytest.mark.parametrize("chunk_rows", [1, 2, 3])
+    def test_peptide_outputs_and_floor_flag_independent_of_chunking(self, chunk_rows: int):
+        # The only below-floor peptide is the last row, alone in its chunk for
+        # chunk_rows=1 — the flag must OR across chunks.
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["p1", "p2", "p3", "p4"],
+                "sequence": ["ACDEFGHIKLMN", "", "ACDE*FGHIKL", "ACDEF"],
+            }
+        )
+        whole = run(reads, {"mode": "peptide"})
+        chunked = run(reads, {"mode": "peptide"}, chunk_rows=chunk_rows)
+        assert chunked["properties"].equals(whole["properties"], null_equal=True)
+        assert chunked["aa_fraction"].equals(whole["aa_fraction"], null_equal=True)
+        assert chunked["stats"] == whole["stats"]
+        assert chunked["stats"]["hasPeptideBelowInstabilityFloor"] is True
+
+    def test_non_positive_chunk_rows_rejected(self, antibody_full_two_clones: pl.DataFrame):
+        with pytest.raises(ValueError, match="chunk_rows"):
+            run(antibody_full_two_clones, self._FULL_PLAN, chunk_rows=0)
