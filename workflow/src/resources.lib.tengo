@@ -1,0 +1,35 @@
+// Resource request for the compute-properties Python step.
+
+exec := import("@platforma-sdk/workflow-tengo:exec")
+
+f := exec.formula
+
+// Peak memory grows linearly with the clone count, read as the line count of
+// the input file (one row per clone plus a header). Each row is about 1.6x the
+// measured peak footprint: whole-sequence mode on ~250 aa sequences, antibody
+// mode on one full chain, antibody mode on two full chains. No upper bound.
+MEM_ROWS := {
+	wholeSequence: { perRow: 8192, interceptGiB: 4 },
+	singleChain: { perRow: 6656, interceptGiB: 1 },
+	pairedChains: { perRow: 8192, interceptGiB: 1 }
+}
+MEM_FLOOR_GIB := 12
+// Backends that cannot evaluate formulas get a static request instead.
+MEM_FALLBACK_GIB := 48
+
+// mem(wholeSeqMode, nFullChains) -> exec.formula for the step's RAM request.
+mem := func(wholeSeqMode, nFullChains) {
+	row := MEM_ROWS.singleChain
+	if wholeSeqMode {
+		row = MEM_ROWS.wholeSequence
+	} else if nFullChains >= 2 {
+		row = MEM_ROWS.pairedChains
+	}
+	return f.lineCount().times(row.perRow).plus(f.gib(row.interceptGiB)).
+		atLeast(f.gib(MEM_FLOOR_GIB)).
+		staticFallback(f.gib(MEM_FALLBACK_GIB))
+}
+
+export {
+	mem: mem
+}
