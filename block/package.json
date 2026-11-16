@@ -50,7 +50,7 @@
       "support": "mailto:support@milaboratories.com",
       "description": "Compute physico-chemical properties (charge, pI, GRAVY, MW, extinction coefficient, instability/aliphatic indices, aromaticity) for peptides and antibody/TCR sequences.",
       "longDescription": "file:../docs/description.md",
-      "changelog": "file:./CHANGELOG.md",
+      "changelog": "file:CHANGELOG.md",
       "tags": [
         "airr",
         "antibody",

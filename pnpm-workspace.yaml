@@ -9,17 +9,17 @@ packages:
 
 catalog:
   "@milaboratories/graph-maker": 1.4.8
-  "@milaboratories/ts-builder": 1.7.3
-  "@milaboratories/ts-configs": 1.4.0
-  "@platforma-sdk/workflow-tengo": 6.22.0
-  "@platforma-sdk/block-tools": 2.19.1
-  "@platforma-sdk/block-kind": 1.1.0
-  "@platforma-sdk/model": 1.88.0
-  "@platforma-sdk/ui-vue": 1.88.3
-  "@platforma-sdk/test": 1.88.7
-  "@milaboratories/helpers": 1.14.6
-  "@platforma-sdk/tengo-builder": 4.1.19
-  "@platforma-sdk/package-builder": 3.16.3
+  "@milaboratories/ts-builder": 1.8.0
+  "@milaboratories/ts-configs": 1.4.1
+  "@platforma-sdk/workflow-tengo": 6.22.3
+  "@platforma-sdk/block-tools": 2.20.1
+  "@platforma-sdk/block-kind": 1.1.1
+  "@platforma-sdk/model": 1.90.2
+  "@platforma-sdk/ui-vue": 1.90.2
+  "@platforma-sdk/test": 1.90.5
+  "@milaboratories/helpers": 1.14.7
+  "@platforma-sdk/tengo-builder": 4.1.25
+  "@platforma-sdk/package-builder": 3.18.0
 
   "@platforma-open/milaboratories.runenv-python-3": 1.8.2
 
@@ -31,6 +31,7 @@ catalog:
 
   "shx": 0.4.0
   "@changesets/cli": 2.29.8
+  cross-env: ~10.1.0
 minimumReleaseAgeExclude:
   - "@milaboratories/*"
   - "@platforma-sdk/*"
