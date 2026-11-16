@@ -203,6 +203,9 @@ catalogs:
     '@platforma-sdk/workflow-tengo':
       specifier: 6.22.3
       version: 6.22.3
+    cross-env:
+      specifier: ~10.1.0
+      version: 10.1.0
     shx:
       specifier: 0.4.0
       version: 0.4.0
@@ -239,6 +242,9 @@ importers:
       '@platforma-sdk/block-tools':
         specifier: 'catalog:'
         version: 2.20.1(@types/node@25.3.2)(supports-color@7.2.0)
+      cross-env:
+        specifier: 'catalog:'
+        version: 10.1.0
       node:
         specifier: runtime:24.22.1
         version: runtime:24.22.1
@@ -836,6 +842,9 @@ packages:
 
   '@dabh/diagnostics@2.0.3':
     resolution: {integrity: sha512-hrlQOIi7hAfzsMqlGSFyVucrx38O+j6wiGOf//H2ecvIEqYN4ADBSS2iLMh5UFyDunCNniUIPk/q3riFv45xRA==}
+
+  '@epic-web/invariant@1.0.0':
+    resolution: {integrity: sha512-lrTPqgvfFQtR/eY/qkIzp98OGdNJu0m5ji3q/nJI8v3SXkRKEnWiOxMmbvcSoAIzv/cGiuvRy57k4suKQSAdwA==}
 
   '@google-cloud/paginator@7.2.0':
     resolution: {integrity: sha512-l+x6YObHGTuqBCMvC0SXo3Cnyqg4FkWWKYRptf46PACHJ5GAUuhsd2b3wphgGrg1ybs/LAb+q5MnUTuG/3+v7w==}
@@ -4707,6 +4716,11 @@ packages:
     resolution: {integrity: sha512-piICUB6ei4IlTv1+653yq5+KoqfBYmj9bw6LqXoOneTMDXk5nM1qt12mFW1caG3LlJXEKW1Bp0WggEmIfQB34g==}
     engines: {node: '>= 14'}
 
+  cross-env@10.1.0:
+    resolution: {integrity: sha512-GsYosgnACZTADcmEyJctkJIoqAhHjttw7RsFrVoJNXbsWWqaq6Ym+7kZjq6mS45O0jij6vtiReppKQEtqWy6Dw==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   cross-spawn@6.0.6:
     resolution: {integrity: sha512-VqCUuhcd1iB+dsv8gxPttb5iZh/D0iubSP21g36KXdEuf6I5JiioesUVjpCdHV9MZRUfVFlvwtIUyPfxo5trtw==}
     engines: {node: '>=4.8'}
@@ -7242,6 +7256,8 @@ snapshots:
       colorspace: 1.1.4
       enabled: 2.0.0
       kuler: 2.0.0
+
+  '@epic-web/invariant@1.0.0': {}
 
   '@google-cloud/paginator@7.2.0':
     dependencies:
@@ -11987,6 +12003,11 @@ snapshots:
     dependencies:
       crc-32: 1.2.2
       readable-stream: 4.7.0
+
+  cross-env@10.1.0:
+    dependencies:
+      '@epic-web/invariant': 1.0.0
+      cross-spawn: 7.0.6
 
   cross-spawn@6.0.6:
     dependencies:
