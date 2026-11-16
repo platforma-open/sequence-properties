@@ -5,13 +5,14 @@ exec := import("@platforma-sdk/workflow-tengo:exec")
 f := exec.formula
 
 // Peak memory grows linearly with the clone count, read as the line count of
-// the input file (one row per clone plus a header). Each row is about 1.6x the
-// measured peak footprint: whole-sequence mode on ~250 aa sequences, antibody
-// mode on one full chain, antibody mode on two full chains. No upper bound.
+// the input file (one row per clone plus a header). Each row requests at least
+// 2x the measured peak footprint: whole-sequence mode on ~250 aa sequences,
+// antibody mode on one full chain, antibody mode on two full chains. No upper
+// bound.
 MEM_ROWS := {
-	wholeSequence: { perRow: 8192, interceptGiB: 4 },
-	singleChain: { perRow: 6656, interceptGiB: 1 },
-	pairedChains: { perRow: 8192, interceptGiB: 1 }
+	wholeSequence: { perRow: 10240, interceptGiB: 6 },
+	singleChain: { perRow: 8192, interceptGiB: 2 },
+	pairedChains: { perRow: 10240, interceptGiB: 2 }
 }
 MEM_FLOOR_GIB := 12
 // Backends that cannot evaluate formulas get a static request instead.

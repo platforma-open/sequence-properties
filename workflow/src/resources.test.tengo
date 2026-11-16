@@ -24,30 +24,51 @@ TestMemFloor := func() {
 	test.isEqual(12 * GIB, evalLines(resources.mem(false, 1), 0))
 	test.isEqual(12 * GIB, evalLines(resources.mem(false, 1), 1000001))
 	test.isEqual(12 * GIB, evalLines(resources.mem(false, 2), 1000001))
-	test.isEqual(12 * GIB, evalLines(resources.mem(true, 0), 1000001))
+	test.isEqual(12 * GIB, evalLines(resources.mem(true, 0), 500001))
 }
 
 TestMemSingleChain := func() {
 	n := 3000001
-	test.isEqual(n * 6656 + GIB, evalLines(resources.mem(false, 1), n))
-	test.isEqual(n * 6656 + GIB, evalLines(resources.mem(false, 0), n))
+	test.isEqual(n * 8192 + 2 * GIB, evalLines(resources.mem(false, 1), n))
+	test.isEqual(n * 8192 + 2 * GIB, evalLines(resources.mem(false, 0), n))
 }
 
 TestMemPairedChains := func() {
 	n := 3000001
-	test.isEqual(n * 8192 + GIB, evalLines(resources.mem(false, 2), n))
-	test.isEqual(n * 8192 + GIB, evalLines(resources.mem(false, 3), n))
+	test.isEqual(n * 10240 + 2 * GIB, evalLines(resources.mem(false, 2), n))
+	test.isEqual(n * 10240 + 2 * GIB, evalLines(resources.mem(false, 3), n))
 }
 
 TestMemWholeSequence := func() {
 	n := 3000001
-	test.isEqual(n * 8192 + 4 * GIB, evalLines(resources.mem(true, 0), n))
+	test.isEqual(n * 10240 + 6 * GIB, evalLines(resources.mem(true, 0), n))
+}
+
+// Measured peak memory footprint in bytes (synthetic inputs, macOS
+// /usr/bin/time -l). Every request is at least 2x its measured peak.
+MEASURED := [
+	{ wholeSeq: false, chains: 1, clones: 1000000, peak: 4187593114 },
+	{ wholeSeq: false, chains: 1, clones: 3000000, peak: 12466726800 },
+	{ wholeSeq: false, chains: 1, clones: 5600000, peak: 17609365913 },
+	{ wholeSeq: false, chains: 2, clones: 1000000, peak: 5457482480 },
+	{ wholeSeq: false, chains: 2, clones: 3000000, peak: 15682711696 },
+	{ wholeSeq: false, chains: 2, clones: 5000000, peak: 17337956200 },
+	{ wholeSeq: true, chains: 0, clones: 1000000, peak: 8217418400 },
+	{ wholeSeq: true, chains: 0, clones: 3000000, peak: 18392741592 }
+]
+
+TestMemTwiceMeasuredPeak := func() {
+	for m in MEASURED {
+		got := evalLines(resources.mem(m.wholeSeq, m.chains), m.clones + 1)
+		test.isTrue(got >= 2 * m.peak,
+			"request below 2x measured peak at " + string(m.clones) + " clones")
+	}
 }
 
 // The request keeps growing with the input: no upper bound.
 TestMemNoCap := func() {
 	n := 100000001
-	test.isEqual(n * 8192 + GIB, evalLines(resources.mem(false, 2), n))
+	test.isEqual(n * 10240 + 2 * GIB, evalLines(resources.mem(false, 2), n))
 }
 
 TestMemStaticFallback := func() {
