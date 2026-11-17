@@ -414,7 +414,8 @@ wf.body(func(args) {
 		}
 	}
 
-	seqTb.mem("4GiB")
+	// No explicit mem on the table export or the imports below: the SDK sizes
+	// each from its input volume, and an explicit value turns that off.
 	seqTb.cpu(1)
 	seqTable := seqTb.build()
 
@@ -528,7 +529,7 @@ wf.body(func(args) {
 		columns: canonicalCols,
 		storageFormat: "Parquet",
 		partitionKeyLength: 0
-	}, { splitDataAndSpec: true, cpu: 1, mem: "4GiB" })
+	}, { splitDataAndSpec: true, cpu: 1 })
 
 	aaOut := undefined
 	if wholeSeqMode {
@@ -539,7 +540,7 @@ wf.body(func(args) {
 			columns: [aaCol.column],
 			storageFormat: "Parquet",
 			partitionKeyLength: 0
-		}, { splitDataAndSpec: true, cpu: 1, mem: "4GiB" })
+		}, { splitDataAndSpec: true, cpu: 1 })
 	}
 
 	// Stamp every column's spec with `pl7.app/blockId` in domain (for run
