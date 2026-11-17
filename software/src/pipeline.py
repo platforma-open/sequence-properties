@@ -16,6 +16,8 @@ Output column names are the contract from `workflow/src/process.tpl.tengo`.
 from __future__ import annotations
 
 import logging
+from collections import Counter
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
 import numpy as np
@@ -119,26 +121,103 @@ def _quantize_for_cid(df: pl.DataFrame) -> pl.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def run(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
-    """Dispatch by mode. Returns a dict with three entries:
+# Rows per compute chunk. Every property is a per-row function, so peak memory
+# scales with the chunk, not the dataset: the per-residue buffers (cleaned AA
+# indices, row ids, count matrices) and both output frames exist for one chunk
+# at a time. The input reader bounds a chunk's sequence bytes
+# (`io_layer.READ_BLOCK_BYTES`).
+DEFAULT_CHUNK_ROWS = 100_000
 
-    - `properties` (DataFrame): one row per entity, columns per the plan.
-    - `aa_fraction` (DataFrame): long-format (entity_key, aminoAcid, value).
-      Empty body when mode is not peptide.
-    - `stats` (dict): dataset-level stats consumed by the workflow info layer
-      (e.g. R11c VHH detection — median CDR3 length per chain;
-      R9 — peptide count below the Instability Index length floor).
+AA_FRACTION_SCHEMA = {"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64}
+
+# Receives each chunk's (properties, aa_fraction) frames, in write order.
+Emit = Callable[[pl.DataFrame, pl.DataFrame], None]
+
+
+# The whole input as one frame, or its consecutive row batches.
+Reads = pl.DataFrame | Iterable[pl.DataFrame]
+
+
+class InputNotSorted(Exception):
+    """An input row's `entity_key` is below the key of the row before it."""
+
+
+INTEGER_KEY_TYPES = frozenset({"Int", "Long"})
+
+
+def has_integer_keys(plan: dict) -> bool:
+    """True when the key axis is an integer axis, whose order is numeric."""
+    return plan.get("keyType") in INTEGER_KEY_TYPES
+
+
+def key_order(integer_keys: bool) -> pl.Expr:
+    """`entity_key` as the values its order is defined on: integers for an
+    integer key axis ("9" before "10"), text otherwise."""
+    return pl.col("entity_key").cast(pl.Int64 if integer_keys else pl.Utf8)
+
+
+def checked_key_order(batches: Iterable[pl.DataFrame], integer_keys: bool = False) -> Iterator[pl.DataFrame]:
+    """Yield `batches` unchanged while their rows are in ascending `entity_key`
+    order (equal keys allowed), within and across batches. Raise
+    `InputNotSorted` at the first batch that breaks the order."""
+    last: str | int | None = None
+    for batch in batches:
+        keys = batch.select(key_order(integer_keys)).to_series()
+        if keys.len():
+            if not keys.is_sorted() or (last is not None and keys[0] < last):
+                raise InputNotSorted
+            last = keys[-1]
+        yield batch
+
+
+def _row_chunks(reads: Reads, chunk_rows: int) -> Iterator[pl.DataFrame]:
+    """Yield the input rows in input order, at most `chunk_rows` rows per frame.
+    A frame with zero rows yields itself, so callers still build correctly
+    typed (empty) outputs."""
+    if chunk_rows < 1:
+        raise ValueError(f"chunk_rows must be >= 1, got {chunk_rows}")
+    for frame in [reads] if isinstance(reads, pl.DataFrame) else reads:
+        if frame.height == 0:
+            yield frame
+        for offset in range(0, frame.height, chunk_rows):
+            yield frame.slice(offset, chunk_rows)
+
+
+def run_streaming(
+    reads: Reads, plan: dict[str, Any], emit: Emit, chunk_rows: int = DEFAULT_CHUNK_ROWS
+) -> dict[str, Any]:
+    """Dispatch by mode. Rows are computed `chunk_rows` at a time in input
+    order; each chunk's frames go to `emit`:
+
+    - properties: one row per entity, columns per the plan.
+    - aa_fraction: long-format (entity_key, aminoAcid, value), entities in
+      input order, 20 rows each in aminoAcid order. Zero rows when mode is not
+      peptide.
+
+    Returns the dataset-level stats consumed by the workflow info layer (e.g.
+    R11c VHH detection — median CDR3 length per chain; R9 — peptide count below
+    the Instability Index length floor). Outputs do not depend on `chunk_rows`.
     """
     mode = plan["mode"]
     if mode == "peptide":
-        log.info("Running peptide mode (%d entities)", reads.height)
-        return run_peptide(reads)
-    log.info(
-        "Running antibody/TCR mode (receptor=%s, %d clones)",
-        plan.get("receptor", "IG"),
-        reads.height,
-    )
-    return run_antibody_tcr(reads, plan)
+        log.info("Running peptide mode (chunk %d rows)", chunk_rows)
+        return run_peptide(reads, emit, chunk_rows)
+    log.info("Running antibody/TCR mode (receptor=%s, chunk %d rows)", plan.get("receptor", "IG"), chunk_rows)
+    return run_antibody_tcr(reads, plan, emit, chunk_rows)
+
+
+def run(reads: Reads, plan: dict[str, Any], chunk_rows: int = DEFAULT_CHUNK_ROWS) -> dict[str, Any]:
+    """`run_streaming` collected into whole frames: a dict with `properties`
+    and `aa_fraction` (DataFrames in write order) and `stats`."""
+    properties: list[pl.DataFrame] = []
+    aa_fraction: list[pl.DataFrame] = []
+
+    def collect(props: pl.DataFrame, aa: pl.DataFrame) -> None:
+        properties.append(props)
+        aa_fraction.append(aa)
+
+    stats = run_streaming(reads, plan, collect, chunk_rows)
+    return {"properties": pl.concat(properties), "aa_fraction": pl.concat(aa_fraction), "stats": stats}
 
 
 # ---------------------------------------------------------------------------
@@ -170,22 +249,63 @@ def _na_to_null(values: np.ndarray) -> pl.Series:
     return pl.Series(values=values, dtype=pl.Float64).fill_nan(None)
 
 
-def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
-    """Compute peptide-mode outputs on the vectorized engine.
+def run_peptide(reads: Reads, emit: Emit, chunk_rows: int = DEFAULT_CHUNK_ROWS) -> dict[str, Any]:
+    """Compute peptide-mode outputs on the vectorized engine, `chunk_rows` rows
+    at a time (see `_peptide_chunk`), and return the stats. The R9 below-floor
+    flag is OR-ed across chunks.
+    """
+    log.info("Computing peptide properties + AA fractions")
+    has_below_floor = False
+    rows = 0
+    for chunk in _row_chunks(reads, chunk_rows):
+        props, aa_fraction, below = _peptide_chunk(chunk)
+        emit(props, aa_fraction)
+        has_below_floor = has_below_floor or below
+        rows += chunk.height
+    log.info("Computed %d sequences", rows)
+    return {
+        "medianCdr3Length": {},
+        "hasPeptideBelowInstabilityFloor": has_below_floor,
+    }
+
+
+def _aa_fraction_long(keys: pl.Series, sub: vec.Substrate) -> pl.DataFrame:
+    """Long AA-fraction frame for one chunk, entities in `keys` order: 20 rows
+    per entity, one per STANDARD_AAS, value NaN -> null for invalid entities so
+    the 2-axis PColumn keeps a uniform shape across entities. Each entity's
+    rows are in ascending aminoAcid order (STANDARD_AAS is ascending).
+    """
+    n = len(keys)
+    fractions = vec.aa_fractions(sub)  # (n, 20), NaN for invalid rows
+    frame = pl.DataFrame(
+        {
+            "entity_key": keys.gather(np.repeat(np.arange(n), len(STANDARD_AAS))),
+            "aminoAcid": pl.Series(values=list(STANDARD_AAS) * n, dtype=pl.Utf8),
+            "value": _na_to_null(fractions.reshape(-1)),  # row-major: entity 0's 20 AAs, ...
+        },
+        schema=AA_FRACTION_SCHEMA,
+    )
+    # Quantized at the output boundary through the shared CID-stability
+    # helper. aaFraction displays as .3f; round to 5 dp. Fractions are >= 0,
+    # so the signed-zero canonicalization is a no-op here.
+    return frame.with_columns(_round_and_canonicalize_zero("value", 5))
+
+
+def _peptide_chunk(reads: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame, bool]:
+    """Peptide-mode outputs for one row chunk: (quantized properties, long
+    AA-fraction frame, whether any peptide is below the instability floor).
 
     Builds the per-residue count substrate once over the `sequence` column, then
-    derives all 10 peptide properties + the AA-fraction matrix with array ops.
-    charge / chargeShift / pi use the IPC 2.0 peptide pKa set with Cys included
-    as ionizable (free thiol); the rest are the linear / instability funcs.
+    derives all 10 peptide properties with array ops. charge / chargeShift / pi
+    use the IPC 2.0 peptide pKa set with Cys included as ionizable (free thiol);
+    the rest are the linear / instability funcs.
 
-    NaN -> null is applied to every emitted float column (and the AA-fraction
-    `value`) so NA rows render as empty cells, byte-matching the scalar path.
+    NaN -> null is applied to every emitted float column so NA rows render as
+    empty cells, byte-matching the scalar path.
     """
     key_series = reads["entity_key"].cast(pl.Utf8)
     seqs = reads["sequence"].to_list()
-    n = len(seqs)
 
-    log.info("Computing peptide properties + AA fractions (%d sequences)", n)
     sub = vec.build_counts(seqs)
 
     eox, ered = vec.extinction(sub)
@@ -208,30 +328,6 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
         }
     )
 
-    # AA-fraction long frame from the (N, 20) mole-fraction matrix: 20 rows per
-    # entity (one per STANDARD_AAS), value NaN -> null for invalid entities so
-    # the 2-axis PColumn keeps a uniform shape across entities. The long-format
-    # entity axis needs Python-level repetition, so materialize keys here.
-    fractions = vec.aa_fractions(sub)  # (N, 20), NaN for invalid rows
-    keys = key_series.to_list()
-    aa_entity = [k for k in keys for _ in STANDARD_AAS]
-    aa_amino = list(STANDARD_AAS) * n
-    aa_value = fractions.reshape(-1)  # row-major: entity 0's 20 AAs, then entity 1's, ...
-    aa_fraction = pl.DataFrame(
-        {
-            "entity_key": pl.Series(values=aa_entity, dtype=pl.Utf8),
-            "aminoAcid": pl.Series(values=aa_amino, dtype=pl.Utf8),
-            "value": _na_to_null(aa_value),
-        }
-    )
-    # Quantize at the output boundary like the property columns, through the
-    # shared CID-stability helper. aaFraction displays as .3f; round to 5 dp (one
-    # digit below display, headroom for the vectorization's FP drift). Fractions
-    # are >=0 so the signed-zero canonicalization is a no-op here, but routing
-    # through the same helper keeps "how an emitted float is made CID-stable" in
-    # one place.
-    aa_fraction = aa_fraction.with_columns(_round_and_canonicalize_zero("value", 5))
-
     # R9 — flag whether any *real* peptide falls below the Instability Index
     # floor. `if s` filters None / "" so the banner does not fire on empty
     # cells (no peptide, not a short peptide); `0 < effective_length` filters
@@ -241,16 +337,7 @@ def run_peptide(reads: pl.DataFrame) -> dict[str, Any]:
     # residues, which the scalar oracle counts toward the floor. Using
     # effective_length keeps this stat bit-identical to the scalar path.
     has_below_floor = any(0 < effective_length(s) < INSTABILITY_MIN_LENGTH for s in seqs if s)
-    stats = {
-        "medianCdr3Length": {},
-        "hasPeptideBelowInstabilityFloor": has_below_floor,
-    }
-
-    return {
-        "properties": _quantize_for_cid(properties),
-        "aa_fraction": aa_fraction,
-        "stats": stats,
-    }
+    return _quantize_for_cid(properties), _aa_fraction_long(key_series, sub), has_below_floor
 
 
 # ---------------------------------------------------------------------------
@@ -292,25 +379,37 @@ def _planned_output_columns(plan: dict[str, Any]) -> list[str]:
     return cols
 
 
-def _median_cdr3_length_by_chain(reads: pl.DataFrame, chains: list[str]) -> dict[str, float]:
-    """Median effective length of CDR3 sequences per chain.
-
-    Only chains with at least one non-empty CDR3 in the dataset appear in the
-    result. Effective length excludes ambiguity codes — matches the convention
-    used by all property functions.
+def _count_cdr3_lengths(counts: dict[str, Counter[int]], reads: pl.DataFrame, chains: list[str]) -> None:
+    """Add this chunk's non-empty CDR3 effective lengths to `counts`, per
+    chain. Effective length excludes ambiguity codes — matches the convention
+    used by all property functions. A chain with no `{chain}_CDR3` column or no
+    non-empty CDR3 gets no entry.
     """
-    out: dict[str, float] = {}
     for ch in chains:
         col = f"{ch}_CDR3"
         if col not in reads.columns:
             continue
         lengths = [effective_length(s) for s in reads[col].to_list() if s]
-        if not lengths:
-            continue
-        lengths.sort()
-        n = len(lengths)
-        mid = n // 2
-        out[ch] = float(lengths[mid]) if n % 2 == 1 else 0.5 * (lengths[mid - 1] + lengths[mid])
+        if lengths:
+            counts.setdefault(ch, Counter()).update(lengths)
+
+
+def _median_cdr3_length_by_chain(counts: dict[str, Counter[int]]) -> dict[str, float]:
+    """Median CDR3 effective length per chain, from `_count_cdr3_lengths`
+    counts. An even count averages the two middle lengths.
+    """
+    out: dict[str, float] = {}
+    for ch, by_length in counts.items():
+        n = by_length.total()
+        # 0-based ranks of the middle value(s) in the sorted lengths.
+        ranks = (n // 2,) if n % 2 == 1 else (n // 2 - 1, n // 2)
+        middle: list[int] = []
+        seen = 0
+        for length in sorted(by_length):
+            seen += by_length[length]
+            while len(middle) < len(ranks) and ranks[len(middle)] < seen:
+                middle.append(length)
+        out[ch] = float(middle[0]) if n % 2 == 1 else 0.5 * (middle[0] + middle[1])
     return out
 
 
@@ -348,8 +447,36 @@ def _reconstruct_chain_column(reads: pl.DataFrame, chain: str) -> list[str | Non
     return reconstructed.to_list()
 
 
-def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any]:
-    """Compute antibody/TCR-mode outputs on the vectorized engine.
+def run_antibody_tcr(
+    reads: Reads, plan: dict[str, Any], emit: Emit, chunk_rows: int = DEFAULT_CHUNK_ROWS
+) -> dict[str, Any]:
+    """Compute antibody/TCR-mode outputs on the vectorized engine, `chunk_rows`
+    rows at a time (see `_antibody_tcr_chunk`), and return the stats. The median
+    CDR3 length stat comes from per-chain length counts added up over the
+    chunks.
+    """
+    chains = plan.get("chains", [])
+    full_chains = plan.get("fullChains", [])
+    if chains:
+        log.info("Computing CDR3 properties for chains %s", list(chains))
+    if full_chains:
+        log.info("Reconstructing full chains %s and computing full-chain properties", list(full_chains))
+    if plan.get("hasFv"):
+        log.info("Computing Fv properties (paired VH+VL)")
+
+    no_aa_fraction = pl.DataFrame(schema=AA_FRACTION_SCHEMA)
+    cdr3_lengths: dict[str, Counter[int]] = {}
+    rows = 0
+    for chunk in _row_chunks(reads, chunk_rows):
+        emit(_antibody_tcr_chunk(chunk, plan), no_aa_fraction)
+        _count_cdr3_lengths(cdr3_lengths, chunk, chains)
+        rows += chunk.height
+    log.info("Computed %d clones", rows)
+    return {"medianCdr3Length": _median_cdr3_length_by_chain(cdr3_lengths)}
+
+
+def _antibody_tcr_chunk(reads: pl.DataFrame, plan: dict[str, Any]) -> pl.DataFrame:
+    """Quantized antibody/TCR property frame for one row chunk.
 
     * CDR3 (per `plan["chains"]`): build_counts on the `{chain}_CDR3` column ->
       charge / chargeShift / gravy with the IPC 2.0 peptide pKa set, Cys
@@ -368,13 +495,6 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
     """
     chains = plan.get("chains", [])
     full_chains = plan.get("fullChains", [])
-    n = reads.height
-    if chains:
-        log.info("Computing CDR3 properties for chains %s (%d clones)", list(chains), n)
-    if full_chains:
-        log.info("Reconstructing full chains %s and computing full-chain properties", list(full_chains))
-    if plan.get("hasFv"):
-        log.info("Computing Fv properties (paired VH+VL)")
 
     series: dict[str, pl.Series] = {"entity_key": reads["entity_key"].cast(pl.Utf8)}
 
@@ -452,10 +572,4 @@ def run_antibody_tcr(reads: pl.DataFrame, plan: dict[str, Any]) -> dict[str, Any
 
     out_cols = _planned_output_columns(plan)
     properties = pl.DataFrame({"entity_key": series["entity_key"], **{c: series[c] for c in out_cols}})
-    aa_fraction = pl.DataFrame(schema={"entity_key": pl.Utf8, "aminoAcid": pl.Utf8, "value": pl.Float64})
-    stats = {"medianCdr3Length": _median_cdr3_length_by_chain(reads, chains)}
-    return {
-        "properties": _quantize_for_cid(properties),
-        "aa_fraction": aa_fraction,
-        "stats": stats,
-    }
+    return _quantize_for_cid(properties)

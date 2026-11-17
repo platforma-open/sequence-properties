@@ -677,3 +677,173 @@ class TestPipelineLogging:
         text = caplog.text.lower()
         assert "full" in text or "vdj" in text or "vh" in text, caplog.text
         assert "fv" in text, caplog.text
+
+
+class TestChunking:
+    """`run(..., chunk_rows=k)` computes k rows at a time. Outputs, dtypes and
+    stats must equal the single-chunk run for every k.
+    """
+
+    _FULL_PLAN = {
+        "mode": "antibody_tcr_legacy_bulk",
+        "receptor": "IG",
+        "chains": ["A", "B"],
+        "fullChains": ["A", "B"],
+        "hasFv": True,
+    }
+
+    # Chunk 1 (rows a0, aX, first in key order) is all-NA: a0 has every region
+    # empty, aX a stop codon in every region. Its Float64 null columns must concat with the valid
+    # chunk 2.
+    def test_all_invalid_chunk_concats_with_valid_chunk(self, antibody_full_two_clones: pl.DataFrame):
+        region_cols = antibody_full_two_clones.columns[1:]
+        bad = pl.DataFrame(
+            {
+                "entity_key": ["a0", "aX"],
+                **{c: ["", "*" + antibody_full_two_clones[c][0]] for c in region_cols},
+            }
+        )
+        reads = pl.concat([bad, antibody_full_two_clones])
+        whole = run(reads, self._FULL_PLAN)
+        chunked = run(reads, self._FULL_PLAN, chunk_rows=2)
+
+        props = chunked["properties"]
+        assert props.schema == whole["properties"].schema
+        assert all(dt == pl.Float64 for name, dt in props.schema.items() if name != "entity_key")
+        assert props.head(2).drop("entity_key").null_count().row(0) == (2,) * (props.width - 1)
+        assert props.equals(whole["properties"], null_equal=True)
+        assert chunked["stats"] == whole["stats"]
+
+    @pytest.mark.parametrize("chunk_rows", [1, 2, 3])
+    def test_peptide_outputs_and_floor_flag_independent_of_chunking(self, chunk_rows: int):
+        # The only below-floor peptide is the last row, alone in its chunk for
+        # chunk_rows=1 — the flag must OR across chunks.
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["p1", "p2", "p3", "p4"],
+                "sequence": ["ACDEFGHIKLMN", "", "ACDE*FGHIKL", "ACDEF"],
+            }
+        )
+        whole = run(reads, {"mode": "peptide"})
+        chunked = run(reads, {"mode": "peptide"}, chunk_rows=chunk_rows)
+        assert chunked["properties"].equals(whole["properties"], null_equal=True)
+        assert chunked["aa_fraction"].equals(whole["aa_fraction"], null_equal=True)
+        assert chunked["stats"] == whole["stats"]
+        assert chunked["stats"]["hasPeptideBelowInstabilityFloor"] is True
+
+    def test_non_positive_chunk_rows_rejected(self, antibody_full_two_clones: pl.DataFrame):
+        with pytest.raises(ValueError, match="chunk_rows"):
+            run(antibody_full_two_clones, self._FULL_PLAN, chunk_rows=0)
+
+
+class TestInputOrderStreaming:
+    """Rows are computed and emitted in input order: properties one row per
+    entity, aa_fraction 20 rows per entity in aminoAcid order.
+    """
+
+    _READS = pl.DataFrame(
+        {
+            "entity_key": ["p10", "p2", "p1", "p30", "p03"],
+            "sequence": ["ACDEFGHIKLMN", "", "WWYYFF", "ACDE*FGHIKL", "KKRRHH"],
+        }
+    )
+
+    @pytest.mark.parametrize("chunk_rows", [1, 2, 3, 100])
+    def test_rows_keep_input_order(self, chunk_rows: int):
+        from aa_tables import STANDARD_AAS
+
+        out = run(self._READS, {"mode": "peptide"}, chunk_rows=chunk_rows)
+        props, aa = out["properties"], out["aa_fraction"]
+        keys = self._READS["entity_key"].to_list()
+        assert props["entity_key"].to_list() == keys
+        assert aa["entity_key"].to_list() == [k for k in keys for _ in STANDARD_AAS]
+        assert aa["aminoAcid"].to_list() == list(STANDARD_AAS) * len(keys)
+        assert props.filter(pl.col("entity_key") == "p1")["aromaticity_peptide"][0] == 1.0
+        assert props.filter(pl.col("entity_key") == "p2")["aromaticity_peptide"][0] is None
+
+    @pytest.mark.parametrize("sizes", [[5], [1, 4], [2, 2, 1], [1, 1, 1, 1, 1]])
+    def test_batched_input_matches_whole_frame(self, sizes: list[int]):
+        whole = run(self._READS, {"mode": "peptide"})
+        offsets = [sum(sizes[:i]) for i in range(len(sizes))]
+        batches = (self._READS.slice(o, n) for o, n in zip(offsets, sizes, strict=True))
+        batched = run(batches, {"mode": "peptide"}, chunk_rows=2)
+        assert batched["properties"].equals(whole["properties"], null_equal=True)
+        assert batched["aa_fraction"].equals(whole["aa_fraction"], null_equal=True)
+        assert batched["stats"] == whole["stats"]
+
+    @pytest.mark.parametrize("chunk_rows", [1, 2, 3, 100])
+    def test_median_cdr3_length_independent_of_chunking(self, chunk_rows: int):
+        # Lengths 3, 5, 5, 8, 12 for chain A (median 5); 4, 6, 6, 10 for chain B
+        # (even count: median 6.0 from the two middle values), one B cell empty.
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["c1", "c2", "c3", "c4", "c5"],
+                "A_CDR3": ["A" * 12, "A" * 3, "A" * 5, "A" * 8, "A" * 5],
+                "B_CDR3": ["C" * 10, "", "C" * 4, "C" * 6, "C" * 6],
+            }
+        )
+        plan = {"mode": "antibody_tcr_legacy_bulk", "receptor": "IG", "chains": ["A", "B"], "fullChains": []}
+        assert run(reads, plan, chunk_rows=chunk_rows)["stats"]["medianCdr3Length"] == {"A": 5.0, "B": 6.0}
+        reads_even = reads.with_columns(pl.Series("B_CDR3", ["C" * 10, "", "C" * 4, "C" * 7, "C" * 6]))
+        assert run(reads_even, plan, chunk_rows=chunk_rows)["stats"]["medianCdr3Length"]["B"] == 6.5
+
+    def test_checked_key_order_passes_sorted_batches_through(self):
+        from pipeline import checked_key_order
+
+        batches = [
+            pl.DataFrame({"entity_key": ["a", "b", "b"]}),
+            pl.DataFrame({"entity_key": []}, schema={"entity_key": pl.Utf8}),
+            pl.DataFrame({"entity_key": ["b", "c"]}),
+        ]
+        assert [b["entity_key"].to_list() for b in checked_key_order(batches)] == [["a", "b", "b"], [], ["b", "c"]]
+
+    @pytest.mark.parametrize(
+        "batches",
+        [
+            [["b", "a"]],  # inside a batch
+            [["a", "c"], ["b", "d"]],  # across batches
+            [["a", "c"], [], ["b"]],  # across an empty batch
+            [["p10", "p2", "p9"], ["p3"]],  # string order, not numeric
+        ],
+    )
+    def test_checked_key_order_rejects_unsorted_rows(self, batches: list[list[str]]):
+        from pipeline import InputNotSorted, checked_key_order
+
+        frames = [pl.DataFrame({"entity_key": keys}, schema={"entity_key": pl.Utf8}) for keys in batches]
+        with pytest.raises(InputNotSorted):
+            list(checked_key_order(frames))
+
+    def test_checked_key_order_compares_integer_keys_numerically(self):
+        from pipeline import InputNotSorted, checked_key_order
+
+        def frames(batches: list[list[str]]) -> list[pl.DataFrame]:
+            return [pl.DataFrame({"entity_key": keys}, schema={"entity_key": pl.Utf8}) for keys in batches]
+
+        numeric = [["2", "9", "10"], ["10", "11"]]
+        assert len(list(checked_key_order(frames(numeric), integer_keys=True))) == 2
+        with pytest.raises(InputNotSorted):
+            list(checked_key_order(frames(numeric)))
+        with pytest.raises(InputNotSorted):
+            list(checked_key_order(frames([["10", "9"]]), integer_keys=True))
+
+    def test_amino_acids_are_in_sorted_order(self):
+        from aa_tables import STANDARD_AAS
+
+        assert list(STANDARD_AAS) == sorted(STANDARD_AAS)
+
+    def test_empty_input_writes_headers_only(self, tmp_path):
+        from io_layer import TsvChunkWriter
+        from pipeline import run_streaming
+
+        reads = pl.DataFrame(schema={"entity_key": pl.Utf8, "sequence": pl.Utf8})
+        props_path, aa_path = tmp_path / "p.tsv", tmp_path / "aa.tsv"
+        with TsvChunkWriter(props_path) as props, TsvChunkWriter(aa_path) as aa:
+
+            def emit(props_chunk, aa_chunk):
+                props.write(props_chunk)
+                aa.write(aa_chunk)
+
+            run_streaming(reads, {"mode": "peptide"}, emit)
+        assert aa_path.read_text() == "entity_key\taminoAcid\tvalue\n"
+        assert props_path.read_text().startswith("entity_key\tcharge_peptide\t")
+        assert props_path.read_text().count("\n") == 1

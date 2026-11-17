@@ -24,8 +24,17 @@ import logging
 import sys
 from pathlib import Path
 
-from io_layer import read_input_tsv, read_plan, write_output_tsv
-from pipeline import run
+from io_layer import TsvChunkWriter, read_input_batches, read_input_tsv, read_plan
+from pipeline import (
+    InputNotSorted,
+    Reads,
+    checked_key_order,
+    has_integer_keys,
+    key_order,
+    run_streaming,
+)
+
+log = logging.getLogger(__name__)
 
 
 def _configure_logging() -> None:
@@ -50,12 +59,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stats", required=True, help="path to write dataset stats JSON")
     args = parser.parse_args(argv)
 
-    reads = read_input_tsv(args.input)
     plan = read_plan(args.plan)
-    outputs = run(reads, plan)
-    write_output_tsv(outputs["properties"], args.output, sort_keys=["entity_key"])
-    write_output_tsv(outputs["aa_fraction"], args.aa_fraction, sort_keys=["entity_key", "aminoAcid"])
-    Path(args.stats).write_text(json.dumps(outputs["stats"], sort_keys=True, separators=(",", ":")))
+
+    def compute(reads: Reads) -> dict:
+        with TsvChunkWriter(args.output) as properties, TsvChunkWriter(args.aa_fraction) as aa_fraction:
+
+            def emit(props, aa):
+                properties.write(props)
+                aa_fraction.write(aa)
+
+            return run_streaming(reads, plan, emit)
+
+    # Output rows are in ascending entity_key order, so the output bytes do not
+    # depend on the input row order. An input already in that order is computed
+    # batch by batch; any other input is read whole and sorted first.
+    integer_keys = has_integer_keys(plan)
+    try:
+        stats = compute(checked_key_order(read_input_batches(args.input), integer_keys))
+    except InputNotSorted:
+        log.warning("Input rows are not in entity_key order: reading the whole table to sort it")
+        stats = compute(read_input_tsv(args.input).sort(key_order(integer_keys), maintain_order=True))
+    Path(args.stats).write_text(json.dumps(stats, sort_keys=True, separators=(",", ":")))
     return 0
 
 

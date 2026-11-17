@@ -440,7 +440,10 @@ wf.body(func(args) {
 		receptor: receptor,
 		chains: chainList,
 		fullChains: fullChainList,
-		hasFv: hasFv
+		hasFv: hasFv,
+		// The table export orders rows by the key axis: numerically for an
+		// integer axis, as text otherwise. The engine checks the same order.
+		keyType: keyAxisSpec.type
 	}
 
 	// Python step contract: reads input.tsv + plan.json; writes properties.tsv,
