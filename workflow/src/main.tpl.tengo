@@ -20,7 +20,6 @@ constants := import("@platforma-sdk/workflow-tengo:constants")
 messages := import(":messages")
 columnSpecs := import(":columns")
 modality := import(":modality")
-resources := import(":resources")
 json := import("json")
 
 infoTpl := assets.importTemplate(":info")
@@ -451,12 +450,15 @@ wf.body(func(args) {
 	// stats.json (dataset-level scalars consumed by the info layer — e.g. R11c
 	// median CDR3 length per chain).
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
-	// RAM scales with the input's row count: the vectorized step materializes
-	// full-N count matrices. cpu(1) is deliberate — the engine is
-	// single-threaded for deterministic output.
+	// For an input in entity key order, the step reads, computes and writes
+	// the table in bounded batches: under 1 GiB measured up to 100M clones and
+	// 200 000 aa sequences. For any other order it holds the whole table to
+	// sort it, and its peak memory grows with the input. cpu(1) is deliberate —
+	// the engine is single-threaded for deterministic output.
 	pyRun := exec.builder().
 		software(soft).
-		resources({ onCPU: { cpu: 1, ram: resources.mem(wholeSeqMode, len(fullChainList)) } }).
+		mem("12GiB").
+		cpu(1).
 		addFile("input.tsv", seqTable).
 		writeFile("plan.json", canonical.encode(plan)).
 		arg("--input").arg("input.tsv").
