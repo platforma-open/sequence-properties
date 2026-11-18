@@ -25,9 +25,10 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra --strict-markers"
+# Slow tests are skipped by default; run them with `uv run pytest -m slow`.
+addopts = "-ra --strict-markers -m 'not slow'"
 markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "slow: marks tests as slow (skipped by default, select with '-m slow')",
 ]
 
 [tool.coverage.run]
