@@ -24,17 +24,8 @@ import logging
 import sys
 from pathlib import Path
 
-from io_layer import TsvChunkWriter, read_input_batches, read_input_tsv, read_plan
-from pipeline import (
-    InputNotSorted,
-    Reads,
-    checked_key_order,
-    has_integer_keys,
-    key_order,
-    run_streaming,
-)
-
-log = logging.getLogger(__name__)
+from io_layer import TsvChunkWriter, read_input_batches, read_plan
+from pipeline import run_streaming
 
 
 def _configure_logging() -> None:
@@ -60,25 +51,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     plan = read_plan(args.plan)
+    # Output rows are in input row order; the CLI does not sort.
+    # - The workflow's table export gives rows in key-axis order (pframes sorts
+    #   every table by its axes), so there the output is in key order too.
+    # - The workflow's imports sort by axes, so the imported columns are the
+    #   same for every row order of the output files.
+    # - Input in another order still gives correct results. The output bytes
+    #   follow the input order, so two orders of the same rows give different
+    #   files, and the import of one is not reused for the other.
+    with TsvChunkWriter(args.output) as properties, TsvChunkWriter(args.aa_fraction) as aa_fraction:
 
-    def compute(reads: Reads) -> dict:
-        with TsvChunkWriter(args.output) as properties, TsvChunkWriter(args.aa_fraction) as aa_fraction:
+        def emit(props, aa):
+            properties.write(props)
+            aa_fraction.write(aa)
 
-            def emit(props, aa):
-                properties.write(props)
-                aa_fraction.write(aa)
-
-            return run_streaming(reads, plan, emit)
-
-    # Output rows are in ascending entity_key order, so the output bytes do not
-    # depend on the input row order. An input already in that order is computed
-    # batch by batch; any other input is read whole and sorted first.
-    integer_keys = has_integer_keys(plan)
-    try:
-        stats = compute(checked_key_order(read_input_batches(args.input), integer_keys))
-    except InputNotSorted:
-        log.warning("Input rows are not in entity_key order: reading the whole table to sort it")
-        stats = compute(read_input_tsv(args.input).sort(key_order(integer_keys), maintain_order=True))
+        stats = run_streaming(read_input_batches(args.input), plan, emit)
     Path(args.stats).write_text(json.dumps(stats, sort_keys=True, separators=(",", ":")))
     return 0
 

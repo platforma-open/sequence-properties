@@ -138,38 +138,6 @@ Emit = Callable[[pl.DataFrame, pl.DataFrame], None]
 Reads = pl.DataFrame | Iterable[pl.DataFrame]
 
 
-class InputNotSorted(Exception):
-    """An input row's `entity_key` is below the key of the row before it."""
-
-
-INTEGER_KEY_TYPES = frozenset({"Int", "Long"})
-
-
-def has_integer_keys(plan: dict) -> bool:
-    """True when the key axis is an integer axis, whose order is numeric."""
-    return plan.get("keyType") in INTEGER_KEY_TYPES
-
-
-def key_order(integer_keys: bool) -> pl.Expr:
-    """`entity_key` as the values its order is defined on: integers for an
-    integer key axis ("9" before "10"), text otherwise."""
-    return pl.col("entity_key").cast(pl.Int64 if integer_keys else pl.Utf8)
-
-
-def checked_key_order(batches: Iterable[pl.DataFrame], integer_keys: bool = False) -> Iterator[pl.DataFrame]:
-    """Yield `batches` unchanged while their rows are in ascending `entity_key`
-    order (equal keys allowed), within and across batches. Raise
-    `InputNotSorted` at the first batch that breaks the order."""
-    last: str | int | None = None
-    for batch in batches:
-        keys = batch.select(key_order(integer_keys)).to_series()
-        if keys.len():
-            if not keys.is_sorted() or (last is not None and keys[0] < last):
-                raise InputNotSorted
-            last = keys[-1]
-        yield batch
-
-
 def _row_chunks(reads: Reads, chunk_rows: int) -> Iterator[pl.DataFrame]:
     """Yield the input rows in input order, at most `chunk_rows` rows per frame.
     A frame with zero rows yields itself, so callers still build correctly

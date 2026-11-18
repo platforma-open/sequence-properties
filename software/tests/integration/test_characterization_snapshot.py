@@ -45,7 +45,7 @@ def _assert_file_bytes_equal(got: Path, golden: Path, label: str) -> None:
 @pytest.mark.parametrize("chunk_rows", [DEFAULT_CHUNK_ROWS, 7, 1])
 @pytest.mark.parametrize("case", CASES)
 def test_quantized_output_matches_golden(case, chunk_rows, tmp_path):
-    # Key order as main.py provides it; the peptide fixture is not sorted.
+    # The golden is in key order; the peptide fixture is not.
     reads = read_input_tsv(DATA / f"{case}_input.tsv").sort("entity_key", maintain_order=True)
     plan = read_plan(DATA / f"{case}_plan.json")
     # Same calls as main.py: chunks are written as they are computed. The

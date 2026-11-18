@@ -787,45 +787,6 @@ class TestInputOrderStreaming:
         reads_even = reads.with_columns(pl.Series("B_CDR3", ["C" * 10, "", "C" * 4, "C" * 7, "C" * 6]))
         assert run(reads_even, plan, chunk_rows=chunk_rows)["stats"]["medianCdr3Length"]["B"] == 6.5
 
-    def test_checked_key_order_passes_sorted_batches_through(self):
-        from pipeline import checked_key_order
-
-        batches = [
-            pl.DataFrame({"entity_key": ["a", "b", "b"]}),
-            pl.DataFrame({"entity_key": []}, schema={"entity_key": pl.Utf8}),
-            pl.DataFrame({"entity_key": ["b", "c"]}),
-        ]
-        assert [b["entity_key"].to_list() for b in checked_key_order(batches)] == [["a", "b", "b"], [], ["b", "c"]]
-
-    @pytest.mark.parametrize(
-        "batches",
-        [
-            [["b", "a"]],  # inside a batch
-            [["a", "c"], ["b", "d"]],  # across batches
-            [["a", "c"], [], ["b"]],  # across an empty batch
-            [["p10", "p2", "p9"], ["p3"]],  # string order, not numeric
-        ],
-    )
-    def test_checked_key_order_rejects_unsorted_rows(self, batches: list[list[str]]):
-        from pipeline import InputNotSorted, checked_key_order
-
-        frames = [pl.DataFrame({"entity_key": keys}, schema={"entity_key": pl.Utf8}) for keys in batches]
-        with pytest.raises(InputNotSorted):
-            list(checked_key_order(frames))
-
-    def test_checked_key_order_compares_integer_keys_numerically(self):
-        from pipeline import InputNotSorted, checked_key_order
-
-        def frames(batches: list[list[str]]) -> list[pl.DataFrame]:
-            return [pl.DataFrame({"entity_key": keys}, schema={"entity_key": pl.Utf8}) for keys in batches]
-
-        numeric = [["2", "9", "10"], ["10", "11"]]
-        assert len(list(checked_key_order(frames(numeric), integer_keys=True))) == 2
-        with pytest.raises(InputNotSorted):
-            list(checked_key_order(frames(numeric)))
-        with pytest.raises(InputNotSorted):
-            list(checked_key_order(frames([["10", "9"]]), integer_keys=True))
-
     def test_amino_acids_are_in_sorted_order(self):
         from aa_tables import STANDARD_AAS
 

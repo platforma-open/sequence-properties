@@ -440,10 +440,7 @@ wf.body(func(args) {
 		receptor: receptor,
 		chains: chainList,
 		fullChains: fullChainList,
-		hasFv: hasFv,
-		// The table export orders rows by the key axis: numerically for an
-		// integer axis, as text otherwise. The engine checks the same order.
-		keyType: keyAxisSpec.type
+		hasFv: hasFv
 	}
 
 	// Python step contract: reads input.tsv + plan.json; writes properties.tsv,
@@ -451,11 +448,15 @@ wf.body(func(args) {
 	// stats.json (dataset-level scalars consumed by the info layer — e.g. R11c
 	// median CDR3 length per chain).
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
-	// For an input in entity key order, the step reads, computes and writes
-	// the table in bounded batches: under 1 GiB measured up to 100M clones and
-	// 200 000 aa sequences. For any other order it holds the whole table to
-	// sort it, and its peak memory grows with the input. cpu(1) is deliberate —
-	// the engine is single-threaded for deterministic output.
+	// The step reads, computes and writes the table in bounded batches: under
+	// 1 GiB measured up to 100M clones and 200 000 aa sequences. cpu(1) is
+	// deliberate — the engine is single-threaded for deterministic output.
+	//
+	// The step does not sort. It writes rows in the order of input.tsv, which
+	// the table export above gives in key-axis order. The imports below sort by
+	// axes, so the output columns do not depend on that order. The bytes of
+	// properties.tsv and aa_fraction.tsv do: the same input.tsv bytes give the
+	// same output bytes, which is what lets a later run reuse the imports.
 	pyRun := exec.builder().
 		software(soft).
 		mem("12GiB").

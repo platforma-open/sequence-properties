@@ -187,9 +187,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _run_peptide(
-    tmp_path: Path, suffix: str, rows: list[dict[str, str]], key_type: str = "String"
-) -> tuple[Path, Path]:
+def _run_peptide(tmp_path: Path, suffix: str, rows: list[dict[str, str]]) -> tuple[Path, Path]:
     """Run the CLI in peptide mode, returning (properties_path, aa_path)."""
     in_tsv = tmp_path / f"input{suffix}.tsv"
     plan_json = tmp_path / f"plan{suffix}.json"
@@ -197,7 +195,7 @@ def _run_peptide(
     aa_tsv = tmp_path / f"aa{suffix}.tsv"
     stats_json = tmp_path / f"stats{suffix}.json"
     _write_tsv(in_tsv, rows, ["entity_key", "sequence"])
-    plan_json.write_text(json.dumps({"mode": "peptide", "keyType": key_type}))
+    plan_json.write_text(json.dumps({"mode": "peptide"}))
     rc = main(
         [
             "--input",
@@ -218,8 +216,7 @@ def _run_peptide(
 
 # Same input, two runs → same bytes. Guards against ULP drift in transcendentals
 # (caught by the quantization step in pipeline._quantize_for_cid) and against
-# row-order drift on the way out (caught by the sort_keys path in
-# io_layer.write_output_tsv).
+# row-order drift on the way out (rows are written in input order).
 def test_byte_stable_across_two_runs(tmp_path: Path):
     rows = [
         {"entity_key": "p1", "sequence": "ACDEFGHIKL"},
@@ -232,38 +229,17 @@ def test_byte_stable_across_two_runs(tmp_path: Path):
     assert _sha256(aa_a) == _sha256(aa_b)
 
 
-# Same content, different input row order → same output bytes. A key-sorted
-# input is streamed; any other order is sorted first, with a warning.
-def test_byte_stable_under_row_permutation(tmp_path: Path, capsys):
+# Output rows are in input row order: the CLI does not sort. The workflow's
+# imports sort by axes.
+def test_output_rows_keep_input_order(tmp_path: Path):
     rows = [
+        {"entity_key": "p3", "sequence": "GFTFSSYAMS"},
         {"entity_key": "p1", "sequence": "ACDEFGHIKL"},
         {"entity_key": "p2", "sequence": "MNPQRSTVWY"},
-        {"entity_key": "p3", "sequence": "GFTFSSYAMS"},
     ]
-    out_sorted, aa_sorted = _run_peptide(tmp_path, "_sorted", rows)
-    assert "not in entity_key order" not in capsys.readouterr().err
-    out_shuffled, aa_shuffled = _run_peptide(tmp_path, "_shuffled", [rows[2], rows[0], rows[1]])
-    assert "not in entity_key order" in capsys.readouterr().err
-    assert _sha256(out_sorted) == _sha256(out_shuffled)
-    assert _sha256(aa_sorted) == _sha256(aa_shuffled)
-    assert [line.split("\t")[0] for line in out_shuffled.read_text().splitlines()[1:]] == ["p1", "p2", "p3"]
-
-
-# An integer key axis is in numeric order ("9" before "10"): that order is
-# streamed without a sort, and any other order sorts back to it.
-def test_integer_keys_are_ordered_numerically(tmp_path: Path, capsys):
-    rows = [
-        {"entity_key": "2", "sequence": "ACDEFGHIKL"},
-        {"entity_key": "9", "sequence": "MNPQRSTVWY"},
-        {"entity_key": "10", "sequence": "GFTFSSYAMS"},
-    ]
-    out_sorted, aa_sorted = _run_peptide(tmp_path, "_sorted", rows, key_type="Long")
-    assert "not in entity_key order" not in capsys.readouterr().err
-    assert [line.split("\t")[0] for line in out_sorted.read_text().splitlines()[1:]] == ["2", "9", "10"]
-    out_shuffled, aa_shuffled = _run_peptide(tmp_path, "_shuffled", [rows[2], rows[0], rows[1]], key_type="Long")
-    assert "not in entity_key order" in capsys.readouterr().err
-    assert _sha256(out_sorted) == _sha256(out_shuffled)
-    assert _sha256(aa_sorted) == _sha256(aa_shuffled)
+    out, aa = _run_peptide(tmp_path, "", rows)
+    assert [line.split("\t")[0] for line in out.read_text().splitlines()[1:]] == ["p3", "p1", "p2"]
+    assert [line.split("\t")[0] for line in aa.read_text().splitlines()[1::20]] == ["p3", "p1", "p2"]
 
 
 # Negative test: different content → different bytes. Proves we're actually
@@ -365,11 +341,12 @@ def test_byte_stable_across_two_runs_antibody(tmp_path: Path):
     assert _sha256(out_a) == _sha256(out_b)
 
 
-# Reverse the input row order; the sort fallback gives the same bytes.
-def test_byte_stable_under_row_permutation_antibody(tmp_path: Path):
-    out_sorted = _run_antibody(tmp_path, "_sorted", _ANTIBODY_ROWS)
-    out_shuffled = _run_antibody(tmp_path, "_shuffled", list(reversed(_ANTIBODY_ROWS)))
-    assert _sha256(out_sorted) == _sha256(out_shuffled)
+# Reverse the input row order; the output rows are the same rows, reversed.
+def test_output_rows_keep_input_order_antibody(tmp_path: Path):
+    out_forward = _run_antibody(tmp_path, "_forward", _ANTIBODY_ROWS)
+    out_reversed = _run_antibody(tmp_path, "_reversed", list(reversed(_ANTIBODY_ROWS)))
+    forward = out_forward.read_text().splitlines()
+    assert out_reversed.read_text().splitlines() == [forward[0], *reversed(forward[1:])]
 
 
 # ---------------------------------------------------------------------------
