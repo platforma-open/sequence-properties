@@ -536,12 +536,14 @@ wf.body(func(args) {
 	if wholeSeqMode {
 		aaFeature := mode == "amplicon" ? "amplicon-sequence" : "peptide"
 		aaCol := columnSpecs.aaFractionColumn(visibleKeyAxisSpec, aaFeature)
+		// Largest job of the block: 20 rows per peptide. Peak is about 3.5x the
+		// TSV size; slope 8 keeps the request above 2x the peak.
 		aaOut = xsv.importFile(aaFractionTsv, "tsv", {
 			axes: aaCol.axes,
 			columns: [aaCol.column],
 			storageFormat: "Parquet",
 			partitionKeyLength: 0
-		}, { splitDataAndSpec: true, cpu: 1 })
+		}, { splitDataAndSpec: true, cpu: 1, memSlope: 8 })
 	}
 
 	// Stamp every column's spec with `pl7.app/blockId` in domain (for run
