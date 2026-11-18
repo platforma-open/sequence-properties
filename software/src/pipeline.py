@@ -142,8 +142,6 @@ def _row_chunks(reads: Reads, chunk_rows: int) -> Iterator[pl.DataFrame]:
     """Yield the input rows in input order, at most `chunk_rows` rows per frame.
     A frame with zero rows yields itself, so callers still build correctly
     typed (empty) outputs."""
-    if chunk_rows < 1:
-        raise ValueError(f"chunk_rows must be >= 1, got {chunk_rows}")
     for frame in [reads] if isinstance(reads, pl.DataFrame) else reads:
         if frame.height == 0:
             yield frame

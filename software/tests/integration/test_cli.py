@@ -242,6 +242,15 @@ def test_output_rows_keep_input_order(tmp_path: Path):
     assert [line.split("\t")[0] for line in aa.read_text().splitlines()[1::20]] == ["p3", "p1", "p2"]
 
 
+# A table with no rows gives output files with a header and no rows, which
+# the workflow's imports read as empty columns.
+def test_header_only_input_writes_headers_only(tmp_path: Path):
+    out, aa = _run_peptide(tmp_path, "", [])
+    assert aa.read_text() == "entity_key\taminoAcid\tvalue\n"
+    assert out.read_text().startswith("entity_key\tcharge_peptide\t")
+    assert out.read_text().count("\n") == 1
+
+
 # Negative test: different content → different bytes. Proves we're actually
 # distinguishing inputs and not just always cache-hitting on a constant.
 def test_byte_changes_when_input_changes(tmp_path: Path):

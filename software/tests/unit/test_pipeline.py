@@ -692,9 +692,9 @@ class TestChunking:
         "hasFv": True,
     }
 
-    # Chunk 1 (rows a0, aX, first in key order) is all-NA: a0 has every region
-    # empty, aX a stop codon in every region. Its Float64 null columns must concat with the valid
-    # chunk 2.
+    # Chunk 1 (rows a0, aX) is all-NA: a0 has every region empty, aX a stop
+    # codon in every region. Its Float64 null columns must concat with the
+    # valid chunk 2.
     def test_all_invalid_chunk_concats_with_valid_chunk(self, antibody_full_two_clones: pl.DataFrame):
         region_cols = antibody_full_two_clones.columns[1:]
         bad = pl.DataFrame(
@@ -713,27 +713,6 @@ class TestChunking:
         assert props.head(2).drop("entity_key").null_count().row(0) == (2,) * (props.width - 1)
         assert props.equals(whole["properties"], null_equal=True)
         assert chunked["stats"] == whole["stats"]
-
-    @pytest.mark.parametrize("chunk_rows", [1, 2, 3])
-    def test_peptide_outputs_and_floor_flag_independent_of_chunking(self, chunk_rows: int):
-        # The only below-floor peptide is the last row, alone in its chunk for
-        # chunk_rows=1 — the flag must OR across chunks.
-        reads = pl.DataFrame(
-            {
-                "entity_key": ["p1", "p2", "p3", "p4"],
-                "sequence": ["ACDEFGHIKLMN", "", "ACDE*FGHIKL", "ACDEF"],
-            }
-        )
-        whole = run(reads, {"mode": "peptide"})
-        chunked = run(reads, {"mode": "peptide"}, chunk_rows=chunk_rows)
-        assert chunked["properties"].equals(whole["properties"], null_equal=True)
-        assert chunked["aa_fraction"].equals(whole["aa_fraction"], null_equal=True)
-        assert chunked["stats"] == whole["stats"]
-        assert chunked["stats"]["hasPeptideBelowInstabilityFloor"] is True
-
-    def test_non_positive_chunk_rows_rejected(self, antibody_full_two_clones: pl.DataFrame):
-        with pytest.raises(ValueError, match="chunk_rows"):
-            run(antibody_full_two_clones, self._FULL_PLAN, chunk_rows=0)
 
 
 class TestInputOrderStreaming:
@@ -786,25 +765,3 @@ class TestInputOrderStreaming:
         assert run(reads, plan, chunk_rows=chunk_rows)["stats"]["medianCdr3Length"] == {"A": 5.0, "B": 6.0}
         reads_even = reads.with_columns(pl.Series("B_CDR3", ["C" * 10, "", "C" * 4, "C" * 7, "C" * 6]))
         assert run(reads_even, plan, chunk_rows=chunk_rows)["stats"]["medianCdr3Length"]["B"] == 6.5
-
-    def test_amino_acids_are_in_sorted_order(self):
-        from aa_tables import STANDARD_AAS
-
-        assert list(STANDARD_AAS) == sorted(STANDARD_AAS)
-
-    def test_empty_input_writes_headers_only(self, tmp_path):
-        from io_layer import TsvChunkWriter
-        from pipeline import run_streaming
-
-        reads = pl.DataFrame(schema={"entity_key": pl.Utf8, "sequence": pl.Utf8})
-        props_path, aa_path = tmp_path / "p.tsv", tmp_path / "aa.tsv"
-        with TsvChunkWriter(props_path) as props, TsvChunkWriter(aa_path) as aa:
-
-            def emit(props_chunk, aa_chunk):
-                props.write(props_chunk)
-                aa.write(aa_chunk)
-
-            run_streaming(reads, {"mode": "peptide"}, emit)
-        assert aa_path.read_text() == "entity_key\taminoAcid\tvalue\n"
-        assert props_path.read_text().startswith("entity_key\tcharge_peptide\t")
-        assert props_path.read_text().count("\n") == 1

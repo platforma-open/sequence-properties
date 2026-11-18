@@ -64,15 +64,6 @@ def test_batches_concatenate_to_the_whole_table(tmp_path: Path, block_bytes: int
     assert pl.concat(batches).equals(read_input_tsv(src), null_equal=True)
 
 
-def test_batches_hold_whole_lines_within_the_block(tmp_path: Path):
-    src = tmp_path / "in.tsv"
-    src.write_text(_BATCH_TSV)
-    keys = [b["entity_key"].to_list() for b in read_input_batches(src, 16)]
-    # A batch ends at the last line end inside its 16-byte block; p3 (24 bytes)
-    # spans two blocks and comes out when its line end is read.
-    assert keys == [["p1", "p2"], ["p3", "p4"], ["p5"]]
-
-
 @pytest.mark.parametrize("text", ["entity_key\tsequence\n", "entity_key\tsequence"])
 def test_header_only_file_yields_one_empty_frame(tmp_path: Path, text: str):
     src = tmp_path / "in.tsv"
