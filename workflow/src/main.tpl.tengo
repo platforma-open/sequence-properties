@@ -459,7 +459,7 @@ wf.body(func(args) {
 	// same output bytes, which is what lets a later run reuse the imports.
 	pyRun := exec.builder().
 		software(soft).
-		mem("12GiB").
+		mem("8GiB").
 		cpu(1).
 		addFile("input.tsv", seqTable).
 		writeFile("plan.json", canonical.encode(plan)).
