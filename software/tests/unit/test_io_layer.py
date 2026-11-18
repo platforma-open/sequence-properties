@@ -10,8 +10,9 @@ import json
 from pathlib import Path
 
 import polars as pl
+import pytest
 
-from io_layer import read_input_tsv, read_plan, write_output_tsv
+from io_layer import read_input_batches, read_input_tsv, read_plan, write_output_tsv
 
 
 # Empty cell in input must survive parse + write as empty cell — not "null"
@@ -44,3 +45,29 @@ def test_write_output_with_none_values(tmp_path: Path):
     text = out.read_text()
     # Polars writes None as empty cell when null_value="".
     assert "b\t\n" in text
+
+
+# ---------------------------------------------------------------------------
+# read_input_batches — the file as consecutive frames of whole lines
+# ---------------------------------------------------------------------------
+
+_BATCH_TSV = "entity_key\tsequence\np1\tACDEF\np2\t\np3\tACDEFGHIKLMNPQRSTVWY\np4\tAC\np5\tACD\n"
+
+
+@pytest.mark.parametrize("block_bytes", [1, 5, 9, 16, 30, 1000])
+@pytest.mark.parametrize("trailing_newline", [True, False])
+def test_batches_concatenate_to_the_whole_table(tmp_path: Path, block_bytes: int, trailing_newline: bool):
+    src = tmp_path / "in.tsv"
+    src.write_text(_BATCH_TSV if trailing_newline else _BATCH_TSV.rstrip("\n"))
+    batches = list(read_input_batches(src, block_bytes))
+    assert all(b.height >= 1 for b in batches)
+    assert pl.concat(batches).equals(read_input_tsv(src), null_equal=True)
+
+
+@pytest.mark.parametrize("text", ["entity_key\tsequence\n", "entity_key\tsequence"])
+def test_header_only_file_yields_one_empty_frame(tmp_path: Path, text: str):
+    src = tmp_path / "in.tsv"
+    src.write_text(text)
+    (frame,) = read_input_batches(src)
+    assert frame.height == 0
+    assert frame.schema == {"entity_key": pl.Utf8, "sequence": pl.Utf8}

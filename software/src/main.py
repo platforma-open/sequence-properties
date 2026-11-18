@@ -24,8 +24,8 @@ import logging
 import sys
 from pathlib import Path
 
-from io_layer import read_input_tsv, read_plan, write_output_tsv
-from pipeline import run
+from io_layer import TsvChunkWriter, read_input_batches, read_plan
+from pipeline import run_streaming
 
 
 def _configure_logging() -> None:
@@ -50,12 +50,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stats", required=True, help="path to write dataset stats JSON")
     args = parser.parse_args(argv)
 
-    reads = read_input_tsv(args.input)
     plan = read_plan(args.plan)
-    outputs = run(reads, plan)
-    write_output_tsv(outputs["properties"], args.output, sort_keys=["entity_key"])
-    write_output_tsv(outputs["aa_fraction"], args.aa_fraction, sort_keys=["entity_key", "aminoAcid"])
-    Path(args.stats).write_text(json.dumps(outputs["stats"], sort_keys=True, separators=(",", ":")))
+    # Output rows are in input row order; the CLI does not sort.
+    # - The workflow's table export gives rows in key-axis order (pframes sorts
+    #   every table by its axes), so there the output is in key order too.
+    # - The workflow's imports sort by axes, so the imported columns are the
+    #   same for every row order of the output files.
+    # - Input in another order still gives correct results. The output bytes
+    #   follow the input order, so two orders of the same rows give different
+    #   files, and the import of one is not reused for the other.
+    with TsvChunkWriter(args.output) as properties, TsvChunkWriter(args.aa_fraction) as aa_fraction:
+
+        def emit(props, aa):
+            properties.write(props)
+            aa_fraction.write(aa)
+
+        stats = run_streaming(read_input_batches(args.input), plan, emit)
+    Path(args.stats).write_text(json.dumps(stats, sort_keys=True, separators=(",", ":")))
     return 0
 
 

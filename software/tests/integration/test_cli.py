@@ -216,8 +216,7 @@ def _run_peptide(tmp_path: Path, suffix: str, rows: list[dict[str, str]]) -> tup
 
 # Same input, two runs → same bytes. Guards against ULP drift in transcendentals
 # (caught by the quantization step in pipeline._quantize_for_cid) and against
-# row-order drift on the way out (caught by the sort_keys path in
-# io_layer.write_output_tsv).
+# row-order drift on the way out (rows are written in input order).
 def test_byte_stable_across_two_runs(tmp_path: Path):
     rows = [
         {"entity_key": "p1", "sequence": "ACDEFGHIKL"},
@@ -230,18 +229,26 @@ def test_byte_stable_across_two_runs(tmp_path: Path):
     assert _sha256(aa_a) == _sha256(aa_b)
 
 
-# Same content, different input row order → same output bytes. Proves the
-# write-side sort actually normalises ordering rather than passing through.
-def test_byte_stable_under_row_permutation(tmp_path: Path):
+# Output rows are in input row order: the CLI does not sort. The workflow's
+# imports sort by axes.
+def test_output_rows_keep_input_order(tmp_path: Path):
     rows = [
+        {"entity_key": "p3", "sequence": "GFTFSSYAMS"},
         {"entity_key": "p1", "sequence": "ACDEFGHIKL"},
         {"entity_key": "p2", "sequence": "MNPQRSTVWY"},
-        {"entity_key": "p3", "sequence": "GFTFSSYAMS"},
     ]
-    out_sorted, aa_sorted = _run_peptide(tmp_path, "_sorted", rows)
-    out_shuffled, aa_shuffled = _run_peptide(tmp_path, "_shuffled", list(reversed(rows)))
-    assert _sha256(out_sorted) == _sha256(out_shuffled)
-    assert _sha256(aa_sorted) == _sha256(aa_shuffled)
+    out, aa = _run_peptide(tmp_path, "", rows)
+    assert [line.split("\t")[0] for line in out.read_text().splitlines()[1:]] == ["p3", "p1", "p2"]
+    assert [line.split("\t")[0] for line in aa.read_text().splitlines()[1::20]] == ["p3", "p1", "p2"]
+
+
+# A table with no rows gives output files with a header and no rows, which
+# the workflow's imports read as empty columns.
+def test_header_only_input_writes_headers_only(tmp_path: Path):
+    out, aa = _run_peptide(tmp_path, "", [])
+    assert aa.read_text() == "entity_key\taminoAcid\tvalue\n"
+    assert out.read_text().startswith("entity_key\tcharge_peptide\t")
+    assert out.read_text().count("\n") == 1
 
 
 # Negative test: different content → different bytes. Proves we're actually
@@ -343,11 +350,12 @@ def test_byte_stable_across_two_runs_antibody(tmp_path: Path):
     assert _sha256(out_a) == _sha256(out_b)
 
 
-# Reverse the input row order; sort_keys must canonicalise so bytes match.
-def test_byte_stable_under_row_permutation_antibody(tmp_path: Path):
-    out_sorted = _run_antibody(tmp_path, "_sorted", _ANTIBODY_ROWS)
-    out_shuffled = _run_antibody(tmp_path, "_shuffled", list(reversed(_ANTIBODY_ROWS)))
-    assert _sha256(out_sorted) == _sha256(out_shuffled)
+# Reverse the input row order; the output rows are the same rows, reversed.
+def test_output_rows_keep_input_order_antibody(tmp_path: Path):
+    out_forward = _run_antibody(tmp_path, "_forward", _ANTIBODY_ROWS)
+    out_reversed = _run_antibody(tmp_path, "_reversed", list(reversed(_ANTIBODY_ROWS)))
+    forward = out_forward.read_text().splitlines()
+    assert out_reversed.read_text().splitlines() == [forward[0], *reversed(forward[1:])]
 
 
 # ---------------------------------------------------------------------------

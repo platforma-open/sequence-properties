@@ -20,7 +20,6 @@ constants := import("@platforma-sdk/workflow-tengo:constants")
 messages := import(":messages")
 columnSpecs := import(":columns")
 modality := import(":modality")
-resources := import(":resources")
 json := import("json")
 
 infoTpl := assets.importTemplate(":info")
@@ -415,7 +414,8 @@ wf.body(func(args) {
 		}
 	}
 
-	seqTb.mem("4GiB")
+	// No explicit mem on the table export or the imports below: the SDK sizes
+	// each from its input volume, and an explicit value turns that off.
 	seqTb.cpu(1)
 	seqTable := seqTb.build()
 
@@ -448,12 +448,20 @@ wf.body(func(args) {
 	// stats.json (dataset-level scalars consumed by the info layer — e.g. R11c
 	// median CDR3 length per chain).
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
-	// RAM scales with the input's row count: the vectorized step materializes
-	// full-N count matrices. cpu(1) is deliberate — the engine is
-	// single-threaded for deterministic output.
+	// The step reads, computes and writes the table in bounded batches: under
+	// 1.2 GiB measured up to 100M clones, 200M peptides and sequences of
+	// 200 000 aa. cpu(1) is
+	// deliberate — the engine is single-threaded for deterministic output.
+	//
+	// The step does not sort. It writes rows in the order of input.tsv, which
+	// the table export above gives in key-axis order. The imports below sort by
+	// axes, so the output columns do not depend on that order. The bytes of
+	// properties.tsv and aa_fraction.tsv do: the same input.tsv bytes give the
+	// same output bytes, which is what lets a later run reuse the imports.
 	pyRun := exec.builder().
 		software(soft).
-		resources({ onCPU: { cpu: 1, ram: resources.mem(wholeSeqMode, len(fullChainList)) } }).
+		mem("8GiB").
+		cpu(1).
 		addFile("input.tsv", seqTable).
 		writeFile("plan.json", canonical.encode(plan)).
 		arg("--input").arg("input.tsv").
@@ -523,18 +531,20 @@ wf.body(func(args) {
 		columns: canonicalCols,
 		storageFormat: "Parquet",
 		partitionKeyLength: 0
-	}, { splitDataAndSpec: true, cpu: 1, mem: "4GiB" })
+	}, { splitDataAndSpec: true, cpu: 1 })
 
 	aaOut := undefined
 	if wholeSeqMode {
 		aaFeature := mode == "amplicon" ? "amplicon-sequence" : "peptide"
 		aaCol := columnSpecs.aaFractionColumn(visibleKeyAxisSpec, aaFeature)
+		// Largest job of the block: 20 rows per peptide. Peak is about 3.5x the
+		// TSV size; slope 8 keeps the request above 2x the peak.
 		aaOut = xsv.importFile(aaFractionTsv, "tsv", {
 			axes: aaCol.axes,
 			columns: [aaCol.column],
 			storageFormat: "Parquet",
 			partitionKeyLength: 0
-		}, { splitDataAndSpec: true, cpu: 1, mem: "4GiB" })
+		}, { splitDataAndSpec: true, cpu: 1, memSlope: 8 })
 	}
 
 	// Stamp every column's spec with `pl7.app/blockId` in domain (for run

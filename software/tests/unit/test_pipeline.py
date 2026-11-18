@@ -677,3 +677,91 @@ class TestPipelineLogging:
         text = caplog.text.lower()
         assert "full" in text or "vdj" in text or "vh" in text, caplog.text
         assert "fv" in text, caplog.text
+
+
+class TestChunking:
+    """`run(..., chunk_rows=k)` computes k rows at a time. Outputs, dtypes and
+    stats must equal the single-chunk run for every k.
+    """
+
+    _FULL_PLAN = {
+        "mode": "antibody_tcr_legacy_bulk",
+        "receptor": "IG",
+        "chains": ["A", "B"],
+        "fullChains": ["A", "B"],
+        "hasFv": True,
+    }
+
+    # Chunk 1 (rows a0, aX) is all-NA: a0 has every region empty, aX a stop
+    # codon in every region. Its Float64 null columns must concat with the
+    # valid chunk 2.
+    def test_all_invalid_chunk_concats_with_valid_chunk(self, antibody_full_two_clones: pl.DataFrame):
+        region_cols = antibody_full_two_clones.columns[1:]
+        bad = pl.DataFrame(
+            {
+                "entity_key": ["a0", "aX"],
+                **{c: ["", "*" + antibody_full_two_clones[c][0]] for c in region_cols},
+            }
+        )
+        reads = pl.concat([bad, antibody_full_two_clones])
+        whole = run(reads, self._FULL_PLAN)
+        chunked = run(reads, self._FULL_PLAN, chunk_rows=2)
+
+        props = chunked["properties"]
+        assert props.schema == whole["properties"].schema
+        assert all(dt == pl.Float64 for name, dt in props.schema.items() if name != "entity_key")
+        assert props.head(2).drop("entity_key").null_count().row(0) == (2,) * (props.width - 1)
+        assert props.equals(whole["properties"], null_equal=True)
+        assert chunked["stats"] == whole["stats"]
+
+
+class TestInputOrderStreaming:
+    """Rows are computed and emitted in input order: properties one row per
+    entity, aa_fraction 20 rows per entity in aminoAcid order.
+    """
+
+    _READS = pl.DataFrame(
+        {
+            "entity_key": ["p10", "p2", "p1", "p30", "p03"],
+            "sequence": ["ACDEFGHIKLMN", "", "WWYYFF", "ACDE*FGHIKL", "KKRRHH"],
+        }
+    )
+
+    @pytest.mark.parametrize("chunk_rows", [1, 2, 3, 100])
+    def test_rows_keep_input_order(self, chunk_rows: int):
+        from aa_tables import STANDARD_AAS
+
+        out = run(self._READS, {"mode": "peptide"}, chunk_rows=chunk_rows)
+        props, aa = out["properties"], out["aa_fraction"]
+        keys = self._READS["entity_key"].to_list()
+        assert props["entity_key"].to_list() == keys
+        assert aa["entity_key"].to_list() == [k for k in keys for _ in STANDARD_AAS]
+        assert aa["aminoAcid"].to_list() == list(STANDARD_AAS) * len(keys)
+        assert props.filter(pl.col("entity_key") == "p1")["aromaticity_peptide"][0] == 1.0
+        assert props.filter(pl.col("entity_key") == "p2")["aromaticity_peptide"][0] is None
+
+    @pytest.mark.parametrize("sizes", [[5], [1, 4], [2, 2, 1], [1, 1, 1, 1, 1]])
+    def test_batched_input_matches_whole_frame(self, sizes: list[int]):
+        whole = run(self._READS, {"mode": "peptide"})
+        offsets = [sum(sizes[:i]) for i in range(len(sizes))]
+        batches = (self._READS.slice(o, n) for o, n in zip(offsets, sizes, strict=True))
+        batched = run(batches, {"mode": "peptide"}, chunk_rows=2)
+        assert batched["properties"].equals(whole["properties"], null_equal=True)
+        assert batched["aa_fraction"].equals(whole["aa_fraction"], null_equal=True)
+        assert batched["stats"] == whole["stats"]
+
+    @pytest.mark.parametrize("chunk_rows", [1, 2, 3, 100])
+    def test_median_cdr3_length_independent_of_chunking(self, chunk_rows: int):
+        # Lengths 3, 5, 5, 8, 12 for chain A (median 5); 4, 6, 6, 10 for chain B
+        # (even count: median 6.0 from the two middle values), one B cell empty.
+        reads = pl.DataFrame(
+            {
+                "entity_key": ["c1", "c2", "c3", "c4", "c5"],
+                "A_CDR3": ["A" * 12, "A" * 3, "A" * 5, "A" * 8, "A" * 5],
+                "B_CDR3": ["C" * 10, "", "C" * 4, "C" * 6, "C" * 6],
+            }
+        )
+        plan = {"mode": "antibody_tcr_legacy_bulk", "receptor": "IG", "chains": ["A", "B"], "fullChains": []}
+        assert run(reads, plan, chunk_rows=chunk_rows)["stats"]["medianCdr3Length"] == {"A": 5.0, "B": 6.0}
+        reads_even = reads.with_columns(pl.Series("B_CDR3", ["C" * 10, "", "C" * 4, "C" * 7, "C" * 6]))
+        assert run(reads_even, plan, chunk_rows=chunk_rows)["stats"]["medianCdr3Length"]["B"] == 6.5
