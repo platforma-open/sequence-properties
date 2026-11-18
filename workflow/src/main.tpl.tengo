@@ -449,7 +449,8 @@ wf.body(func(args) {
 	// median CDR3 length per chain).
 	soft := assets.importSoftware("@platforma-open/milaboratories.sequence-properties.software:compute-properties")
 	// The step reads, computes and writes the table in bounded batches: under
-	// 1 GiB measured up to 100M clones and 200 000 aa sequences. cpu(1) is
+	// 1.2 GiB measured up to 100M clones, 200M peptides and sequences of
+	// 200 000 aa. cpu(1) is
 	// deliberate — the engine is single-threaded for deterministic output.
 	//
 	// The step does not sort. It writes rows in the order of input.tsv, which
