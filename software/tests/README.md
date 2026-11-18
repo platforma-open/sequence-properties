@@ -56,6 +56,7 @@ The golden snapshot pins *whatever the current code produces*, not an independen
 | `test_cli.py` | `main()` with file args — the contract the Tengo workflow calls. |
 | `test_determinism.py` | Cross-process byte-stability — spawns the CLI in fresh processes to catch hash-seed-dependent ordering. |
 | `test_perf_benchmark.py` | `@slow` wall-clock benchmark. Excluded from the CI gate; the real number goes in the PR. |
+| `test_peak_memory.py` | `@slow` check that the peak memory of the CLI does not grow with the row count (400k vs 1.6M rows). Excluded from the CI gate. |
 
 ### `data/`
 
@@ -68,12 +69,12 @@ From `blocks/sequence-properties/software/`:
 
 ```bash
 uv sync
-uv run pytest -m "not slow"     # what CI runs
-uv run pytest                   # full suite, including the slow benchmark
-uv run pytest tests/integration/test_perf_benchmark.py -m slow   # just the benchmark
+uv run pytest                   # what CI runs: every test except the slow ones
+uv run pytest -m ""             # full suite, including the slow tests
+uv run pytest -m slow           # only the slow tests (benchmark and peak memory)
 ```
 
-A bare `uv run pytest` runs everything — the `slow` marker is defined but not deselected by default (`pyproject.toml [tool.pytest.ini_options]`). Pass `-m "not slow"` to match CI.
+A bare `uv run pytest` skips the tests marked `slow`: `addopts` in `pyproject.toml [tool.pytest.ini_options]` passes `-m 'not slow'`. A `-m` option on the command line replaces it.
 
 ## Regenerating the golden
 
